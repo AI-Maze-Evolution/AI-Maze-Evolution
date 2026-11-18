@@ -84,15 +84,32 @@ def generate_maze(size, rng):
             return grid
 
 
-def apply_edit(grid, edit):
-    """격자와 수정 요청을 받아 원본을 보존한 채 수정된 복사본을 반환한다."""
-    edit_type = edit["type"]
-    row, col = edit["pos"]
+def _editable_position(grid, pos):
+    """격자와 수정 좌표를 받아 수정 가능한 좌표를 반환한다."""
+    row, col = pos
     height, width = grid.shape
     if not (0 <= row < height and 0 <= col < width):
         raise ValueError("수정 좌표가 미로 밖에 있습니다.")
     if (row, col) in ((0, 0), (height - 1, width - 1)):
         raise ValueError("시작점과 출구는 수정할 수 없습니다.")
+    return row, col
+
+
+def apply_edit(grid, edit):
+    """격자와 수정 요청을 받아 원본을 보존한 채 수정된 복사본을 반환한다."""
+    edit_type = edit["type"]
+    pos = _editable_position(grid, edit["pos"])
+
+    if edit_type == "move_wall":
+        if "from" not in edit:
+            raise ValueError("이동할 벽의 원래 좌표가 필요합니다.")
+        source = _editable_position(grid, edit["from"])
+        if grid[source] != WALL or grid[pos] != EMPTY:
+            raise ValueError("벽은 기존 벽 칸에서 빈칸으로만 이동할 수 있습니다.")
+        new_grid = grid.copy()
+        new_grid[source] = EMPTY
+        new_grid[pos] = WALL
+        return new_grid
 
     traps_enabled = _DEFAULT_ENABLE_TRAPS if config is None else config.ENABLE_TRAPS
     if edit_type in ("add_trap", "remove_trap") and not traps_enabled:
@@ -105,5 +122,5 @@ def apply_edit(grid, edit):
         raise ValueError(f"지원하지 않는 수정 유형입니다: {edit_type}")
 
     new_grid = grid.copy()
-    new_grid[row, col] = value
+    new_grid[pos] = value
     return new_grid
