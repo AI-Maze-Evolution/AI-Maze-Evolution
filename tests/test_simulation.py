@@ -3,6 +3,7 @@
 import json
 
 import numpy as np
+import pytest
 
 from core import evolution, simulation
 from core.maze import EMPTY, WALL
@@ -12,7 +13,7 @@ class FakeBuilder:
     """모든 라운드에서 같은 벽 수정을 제안한다."""
 
     last_state = np.int64(1)
-    last_action = "add_wall"
+    last_action = 0
 
     def propose_edit(self, grid, start, goal, report):
         """환경과 직전 성적표를 받아 고정된 수정안을 반환한다."""
@@ -37,13 +38,13 @@ def _install_fakes(monkeypatch, tmp_path, success_rate):
     calls = []
     learned = []
 
-    def make_agents(mode, size):
+    def make_agents(mode, size, seed):
         """제작 방식과 크기를 받아 테스트용 에이전트와 실행기를 반환한다."""
         builder, solver = FakeBuilder(), FakeSolver()
         if mode == "sarsa":
             builder.q_table = np.arange(36).reshape(3, 3, 4)
         solver.reset_for_size(size)
-        return builder, solver, run_round
+        return builder, solver, run_round, ("block_hot", "block_path", "random_wall", "remove_wall")
 
     def run_round(env, agent, episodes):
         """환경과 Solver 및 판 수를 받아 일정한 성적표를 반환한다."""
@@ -75,15 +76,19 @@ def test_round_results_and_log(monkeypatch, tmp_path):
     """세 라운드의 단일 Solver 실행, Builder 입력, 로그 내용을 검증한다."""
     calls, learned = _install_fakes(monkeypatch, tmp_path, 0.0)
     sim = simulation.Simulation()
-    results = [sim.step_round() for _ in range(3)]
+    results = [sim.step() for _ in range(3)]
     result = results[-1]
     assert set(result) == {
-        "round", "era", "size", "grid", "edit", "edit_reverted", "reports",
-        "best_paths", "q_values_max", "builder_state", "builder_action", "builder_reward",
+        "round", "era", "size", "start", "goal", "grid", "edit", "edit_reverted", "reports",
+        "best_paths", "q_values_max", "builder_mode", "builder_state", "builder_action", "builder_action_name", "builder_reward",
         "builder_q_table",
-        "era_changed", "finished",
+        "era_changed", "next_size", "finished",
     }
     assert result["round"] == 3
+    assert result["builder_action_name"] == "block_hot"
+    assert result["next_size"] is None
+    assert result["start"] == [0, 0]
+    assert result["goal"] == [result["size"] - 1] * 2
     assert result["edit_reverted"] is True
     assert result["grid"][1][1] == WALL
     assert sim.grid[1, 1] == EMPTY
@@ -113,9 +118,15 @@ def test_era_transition_and_finish(monkeypatch, tmp_path):
     assert result["era_changed"] is True
     assert result["builder_q_table"] is None
     assert sim.size == evolution.config.ERA_SIZES[1]
+    assert result["next_size"] == sim.size
+    assert sim.get_state()["last_result"]["size"] == result["size"]
+    assert len(sim.get_state()["grid"]) == sim.size
     assert sim.is_finished() is False
     assert sim.run_all() is None
     assert sim.is_finished() is True
+    assert sim.get_state()["status"] == "finished"
+    with pytest.raises(simulation.SimulationStateError):
+        sim.step()
     assert sim.round == len(evolution.config.ERA_SIZES)
 
 
@@ -127,3 +138,65 @@ def test_era_threshold_and_maximum():
     assert evolution.should_advance_era(history, cfg.ERA_MIN_ROUNDS)
     assert evolution.should_advance_era([], cfg.ERA_MAX_ROUNDS)
     assert evolution.next_size(cfg.ERA_SIZES[-1]) is None
+
+
+def test_external_controls_and_state_history(monkeypatch, tmp_path):
+    """외부 제어 상태, 수동 진행, JSON 직렬화와 기록 사본을 검증한다."""
+    _install_fakes(monkeypatch, tmp_path, 1.0)
+    sim = simulation.Simulation(seed=7)
+    initial = sim.get_state()
+    assert set(initial) == {
+        "status", "builder_mode", "seed", "round", "era", "size", "start", "goal",
+        "grid", "finished", "last_result", "history",
+    }
+    assert initial["status"] == "idle"
+    assert initial["seed"] == 7
+    assert initial["last_result"] is None
+    assert json.loads(json.dumps(initial)) == initial
+    with pytest.raises(simulation.SimulationStateError):
+        sim.pause()
+    sim.step()
+    assert sim.status == "idle"
+    assert sim.start()["status"] == "running"
+    with pytest.raises(simulation.SimulationStateError):
+        sim.start()
+    assert sim.pause()["status"] == "paused"
+    result = sim.step()
+    assert sim.status == "paused"
+    assert json.loads(json.dumps(result)) == result
+    state = sim.resume()
+    assert state["status"] == "running"
+    assert state["round"] == 2
+    assert state["last_result"] == result
+    summary = state["history"][-1]
+    assert summary == {
+        "round": 2, "era": 1, "size": sim.size, "success_rate": 1.0,
+        "early_success_rate": 1.0, "avg_reward": 1.0, "avg_steps": 2.0,
+        "builder_reward": 1.0, "builder_action_name": "block_hot", "edit_type": "add_wall",
+        "edit_reverted": False, "era_changed": False,
+    }
+    state["history"].clear()
+    result["grid"].clear()
+    assert len(sim.get_state()["history"]) == 2
+    assert sim.get_state()["last_result"]["grid"]
+
+
+def test_reset_preserves_seed_and_restarts_training(monkeypatch, tmp_path):
+    """재설정이 에이전트와 기록을 초기화하고 같은 시드를 재사용하는지 검증한다."""
+    generate_maze = simulation.generate_maze
+    _install_fakes(monkeypatch, tmp_path, 0.0)
+    monkeypatch.setattr(simulation, "generate_maze", generate_maze)
+    sim = simulation.Simulation("sarsa", seed=42)
+    initial = sim.get_state()
+    previous_builder = sim._builder
+    first = sim.step()
+    assert sim.reset() == initial
+    assert sim._builder is not previous_builder
+    assert sim.step() == first
+    assert len(list(tmp_path.glob("run_*.jsonl"))) == 2
+    changed = sim.reset(builder_mode="rule", seed=0)
+    assert changed["builder_mode"] == "rule"
+    assert changed["seed"] == 0
+    assert changed["round"] == 0
+    assert changed["history"] == []
+    assert sim.step()["builder_q_table"] is None
