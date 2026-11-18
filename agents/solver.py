@@ -66,9 +66,6 @@ class QLearningAgent:
         """환경에서 탐험 없이 이동한 시작점 포함 경로를 반환한다."""
         state = env.reset()
         path = [state]
-        if state == env.goal:
-            return path
-
         for _ in range(env.max_steps):
             action = self.select_action(state, greedy=True)
             next_state, _, done, _ = env.step(action)
@@ -160,7 +157,7 @@ def run_round(env, agent, n_episodes):
             visit_counts[next_state] += 1
             episode_reward += reward
             episode_steps = info.get("steps", episode_steps + 1)
-            success = success or info.get("result") == "goal" or next_state == env.goal
+            success = success or info.get("result") == "goal"
             state = next_state
             if not done:
                 action = (
