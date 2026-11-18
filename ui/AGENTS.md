@@ -5,9 +5,10 @@
 
 ## 파일별 역할
 - dashboard.py: 메인 화면. 시작·일시정지, 학습 배속, 현재 시대·크기·라운드, 성공률 표시
-- maze_view.py: 미로 그리기, Builder가 수정한 칸 강조, 두 Solver의 best_paths, Q값 히트맵
-- charts.py: 라운드별 success_rate(q, sarsa, merged), early_success_rate(q vs sarsa),
-  avg_steps, avg_reward, builder_reward 그래프, 시대 전환 지점 세로선
+- maze_view.py: 미로 그리기, Builder가 수정한 칸 강조, 탈출 AI의 best_paths, Q값 히트맵
+- charts.py: 라운드별 success_rate, early_success_rate, avg_steps, avg_reward(탈출 AI),
+  builder_reward, 제작 AI 행동 선택 기록, builder_q_table 히트맵, 시대 전환 지점 세로선
+  (실험 비교는 rule vs sarsa 제작 AI)
 - main.py: Simulation을 만들고 Dashboard 실행. --headless 옵션이면 sim.run_all()만 실행
 
 ## 가져다 쓰는 것
