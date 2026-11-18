@@ -17,7 +17,7 @@
     │   ├── maze.py                 미로 표현, BFS, 미로 생성·수정
     │   ├── environment.py          MazeEnv
     │   ├── evolution.py            시대 전환
-    │   └── simulation.py           Simulation, merge_reports, 로그
+    │   └── simulation.py           Simulation, 로그
     ├── agents/
     │   ├── AGENTS.md
     │   ├── builder.py              민규
@@ -99,7 +99,7 @@
 ## 6. 시대 전환 (core/evolution.py) — 윤중
 
 - should_advance_era(history, rounds_in_era) → bool
-  - history: 현재 시대의 라운드별 통합 성공률 리스트
+  - history: 현재 시대의 라운드별 성공률 리스트
   - rounds_in_era ≥ ERA_MIN_ROUNDS 이고 최근 ERA_WINDOW 라운드 평균 ≥ ERA_SUCCESS_THRESHOLD 이면 True
   - rounds_in_era ≥ ERA_MAX_ROUNDS 이면 무조건 True
 - next_size(size) → int 또는 None  (ERA_SIZES의 다음 크기, 마지막이면 None)
@@ -108,25 +108,23 @@
 
 ## 7. 탈출 AI (agents/solver.py) — 규민
 
-QLearningAgent(size, rng), SarsaAgent(size, rng) 공통:
+QLearningAgent(size, rng):
 
 - select_action(state, greedy=False) → int
   - greedy=False면 ε-greedy, True면 Q값 최대 행동
-- update(state, action, reward, next_state, next_action, done) → None
-  - Q-Learning: next_action을 무시하고 다음 상태의 최대 Q값 사용
-  - SARSA: next_action의 Q값 사용
-  - 두 AI가 같은 모양을 쓰도록 next_action은 항상 넘긴다
+- update(state, action, reward, next_state, done) → None
+  - 다음 상태의 최대 Q값을 사용한다 (Q-Learning)
 - decay_epsilon() → None  (한 판 끝날 때마다 호출)
 - reset_for_size(size) → None  (시대가 바뀌면 Q-table을 새 크기로 초기화)
 - greedy_path(env) → list[(행, 열)]  (탐험 없이 움직인 경로, 최대 env.max_steps 걸음)
-- 속성: agent.q_table (size × size × 4), agent.epsilon, agent.name ("q" 또는 "sarsa")
+- 속성: agent.q_table (size × size × 4), agent.epsilon, agent.name ("q")
 
 run_round(env, agent, n_episodes) → report
 
 ## 8. 성적표 (report)
 
     {
-      "algo": "q" | "sarsa" | "merged",
+      "algo": "q",
       "n_episodes": int,
       "success_rate": float (0~1),
       "early_success_rate": float (0~1),   이번 라운드 처음 ROUND_EARLY_EPISODES판의 성공률
@@ -137,21 +135,21 @@ run_round(env, agent, n_episodes) → report
       "shortest_path_len": int
     }
 
-- early_success_rate는 미로가 수정된 직후 얼마나 빨리 적응하는지 비교하는 핵심 지표다
-- 통합 성적표(merge_reports): 비율과 평균은 두 AI의 평균, visit_counts는 합, algo는 "merged"
+- early_success_rate는 미로 수정 직후 탈출 AI의 적응 속도 지표다
 
 ---
 
 ## 9. 제작 AI (agents/builder.py) — 민규
 
-RuleBasedBuilder(rng), QBuilder(rng) 공통:
+RuleBasedBuilder(rng), SarsaBuilder(rng) 공통:
 
 - propose_edit(grid, start, goal, report) → edit 또는 None
-  - report는 직전 라운드의 통합 성적표 (첫 라운드는 None)
+  - report는 직전 라운드의 성적표 (첫 라운드는 None)
   - 수정할 것이 없으면 None
 - learn(prev_report, next_report, edit_reverted) → float
   - 직전 수정의 결과로 보상을 계산해 학습하고 그 보상을 돌려준다
   - RuleBasedBuilder는 학습하지 않고 보상만 계산해 돌려준다
+  - SARSA: learn에서 다음 상태와 다음 행동을 먼저 정하고, 그 행동의 Q값으로 업데이트. 다음 propose_edit는 그 행동을 실행
 - 속성: builder.last_state, builder.last_action (로그용, 없으면 None)
 - 상태는 미로 크기와 무관하게 설계한다 (시대가 바뀌어도 학습 유지)
 - 상태·행동 상세 설계는 담당자가 정한다 (agents/AGENTS.md 참고)
@@ -160,7 +158,7 @@ RuleBasedBuilder(rng), QBuilder(rng) 공통:
 
 ## 10. 시뮬레이션 (core/simulation.py) — 윤중
 
-    Simulation(builder_mode="q" | "rule")
+    Simulation(builder_mode="sarsa" | "rule")
 
 - step_round() → round_result  (한 라운드 진행 후 결과 반환, UI가 반복 호출)
 - run_all() → None  (UI 없이 끝까지 실행, 로그만 기록)
@@ -171,12 +169,11 @@ RuleBasedBuilder(rng), QBuilder(rng) 공통:
 1. Builder가 propose_edit로 수정안을 낸다
 2. apply_edit 후 is_solvable 검사. 풀 수 없으면 취소하고 다시 제안받는다
    (최대 MAX_EDIT_RETRY회, 실패하면 이번 라운드는 수정 없음)
-3. Q-Learning, SARSA Solver가 같은 미로에서 각각 ROUND_EPISODES판씩 run_round
-4. merge_reports로 통합 성적표를 만든다
-5. 통합 성공률이 0이면 이번 수정을 되돌리고 edit_reverted=True
-6. Builder가 learn(이전 통합 성적표, 이번 통합 성적표, edit_reverted)
-7. round_result를 로그에 한 줄 기록하고 반환
-8. should_advance_era가 True면 next_size로 generate_maze,
+3. Q-Learning Solver가 미로에서 ROUND_EPISODES판 run_round
+4. 성공률이 0이면 이번 수정을 되돌리고 edit_reverted=True
+5. Builder가 learn(이전 성적표, 이번 성적표, edit_reverted)
+6. round_result를 로그에 한 줄 기록하고 반환
+7. should_advance_era가 True면 next_size로 generate_maze,
    Solver는 reset_for_size, Builder는 그대로 유지
 
 ## 11. round_result / 로그 형식
@@ -191,12 +188,13 @@ RuleBasedBuilder(rng), QBuilder(rng) 공통:
       "grid": 2차원 리스트,
       "edit": edit 또는 null,
       "edit_reverted": bool,
-      "reports": {"q": 성적표, "sarsa": 성적표, "merged": 성적표},
-      "best_paths": {"q": [[행, 열], ...], "sarsa": [[행, 열], ...]},
-      "q_values_max": {"q": 2차원 리스트, "sarsa": 2차원 리스트},
+      "reports": {"q": 성적표},
+      "best_paths": {"q": [[행, 열], ...]},
+      "q_values_max": {"q": 2차원 리스트},
       "builder_state": 값 또는 null,
       "builder_action": 값 또는 null,
       "builder_reward": float,
+      "builder_q_table": 3×3×4 리스트 또는 null (SarsaBuilder일 때만),
       "era_changed": bool,
       "finished": bool
     }
@@ -211,7 +209,7 @@ RuleBasedBuilder(rng), QBuilder(rng) 공통:
 | 이름 | 초기값 | 설명 |
 |---|---|---|
 | SEED | 42 | 랜덤 시드 |
-| SEED_OFFSET | maze 0, q 1, sarsa 2, builder 3 | 모듈별 시드 오프셋 |
+| SEED_OFFSET | maze 0, q 1, builder 3 | 모듈별 시드 오프셋 |
 | ENABLE_TRAPS | False | 함정 확장 스위치 |
 | ERA_SIZES | [5, 7, 10] | 시대별 미로 크기 |
 | WALL_DENSITY | {5: 0.2, 7: 0.25, 10: 0.3} | 초기 벽 비율 |
@@ -251,6 +249,8 @@ RuleBasedBuilder(rng), QBuilder(rng) 공통:
 | 민규 | builder.py 행동 후보에 "함정 놓기" 추가 (ENABLE_TRAPS일 때만) |
 | 규민 | run_round에서 trap_rate 실제 계산 |
 | 수암 | maze_view.py에 함정 칸 색 추가, charts.py에 trap_rate 그래프 추가 |
+
+- 완료 조건: 함정 배치가 탈출 AI 경로와 제작 AI 학습에 미치는 영향 확인
 
 ---
 
