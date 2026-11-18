@@ -1,14 +1,14 @@
 # AI Maze Evolution
 
-미로 제작 AI(Builder)와 탈출 AI(Solver: Q-Learning, SARSA)가 경쟁하며 학습하고,
+미로 제작 AI(Builder: SARSA)와 탈출 AI(Solver: Q-Learning)가 경쟁하며 학습하고,
 미로가 5×5 → 7×7 → 10×10으로 커지는 강화학습 시뮬레이터.
 
 ## 담당
 
 | 번호 | 역할 | 파일 | 담당 |
 |---|---|---|---|
-| 1 | 미로 제작 AI | agents/builder.py | 민규 |
-| 2 | 미로 탈출 AI | agents/solver.py | 규민 |
+| 1 | 미로 제작 AI (SARSA) | agents/builder.py | 민규 |
+| 2 | 미로 탈출 AI (Q-Learning) | agents/solver.py | 규민 |
 | 3 | 환경 및 학습 통합 | core/maze.py, core/environment.py, core/evolution.py, core/simulation.py | 윤중 |
 | 4 | UI 및 시각화 | ui/dashboard.py, ui/maze_view.py, ui/charts.py, main.py | 수암 |
 
