@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 import config
-from agents.builder import SarsaBuilder, RuleBasedBuilder
+from agents.builder import ACTION_NAMES, SarsaBuilder, RuleBasedBuilder
 
 EMPTY, WALL = 0, 1
 EDIT_TYPES = {"add_wall", "remove_wall"}
@@ -305,3 +305,48 @@ def test_sarsa_builder_learn_without_edit_only_sets_pending():
     builder.learn(None, make_report(0.5), edit_reverted=False)
     assert not builder.q_table.any()
     assert builder.pending_action is not None
+
+
+def test_action_names_match_interface():
+    assert len(ACTION_NAMES) == 4
+    assert ACTION_NAMES == ("block_hot", "block_path", "random_wall", "remove_wall")
+
+
+def test_last_action_name_matches_last_action():
+    grid = make_grid()
+    start, goal = (0, 0), (4, 4)
+    for seed in range(20):
+        for builder in make_builders(seed):
+            assert builder.last_action is None and builder.last_action_name is None
+            for report in ALL_REPORTS:
+                builder.propose_edit(grid, start, goal, report)
+                if builder.last_action is None:
+                    assert builder.last_action_name is None
+                else:
+                    assert builder.last_action_name == ACTION_NAMES[builder.last_action]
+
+    # 첫 라운드(report=None)는 수정이 없으므로 이름도 None
+    builder = RuleBasedBuilder(_rng(0), path_fn=fake_path)
+    builder.propose_edit(grid, start, goal, make_report(0.5))
+    assert builder.last_action_name == "random_wall"
+    builder.propose_edit(grid, start, goal, None)
+    assert builder.last_action_name is None
+
+
+def test_rule_builder_action_names_by_success_bin():
+    grid = make_grid()
+    start, goal = (0, 0), (4, 4)
+    expected = {
+        0.1: "remove_wall",
+        0.5: "random_wall",
+    }
+    for rate, name in expected.items():
+        builder = RuleBasedBuilder(_rng(1), path_fn=fake_path)
+        builder.propose_edit(grid, start, goal, make_report(rate))
+        assert builder.last_action_name == name
+    builder = RuleBasedBuilder(_rng(1), path_fn=fake_path)
+    builder.propose_edit(grid, start, goal, make_report(0.9, path_len=8))
+    assert builder.last_action_name == "block_path"
+    builder = RuleBasedBuilder(_rng(1), path_fn=fake_path)
+    builder.propose_edit(grid, start, goal, make_report(0.9, path_len=15))
+    assert builder.last_action_name == "block_hot"
