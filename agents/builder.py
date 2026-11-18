@@ -1,6 +1,6 @@
 """미로 제작 AI (Builder).
 
-RuleBasedBuilder, QBuilder 두 종류가 있으며 공개 인터페이스는 docs/interface.md 9번을 따른다.
+RuleBasedBuilder, SarsaBuilder 두 종류가 있으며 공개 인터페이스는 docs/interface.md 9번을 따른다.
 
 - propose_edit(grid, start, goal, report) -> edit 또는 None
 - learn(prev_report, next_report, edit_reverted) -> float (보상)
@@ -80,7 +80,7 @@ def _report_size(report):
 def state_from_report(report):
     """성적표로 Builder 상태를 계산한다.
 
-    입력: report (dict, interface.md 8번 형식의 통합 성적표)
+    입력: report (dict, interface.md 8번 형식의 성적표)
     출력: (성공률 구간, 최단 경로 구간) 튜플
     """
     return (
@@ -90,7 +90,7 @@ def state_from_report(report):
 
 
 class BaseBuilder:
-    """RuleBasedBuilder와 QBuilder가 공유하는 기반 클래스.
+    """RuleBasedBuilder와 SarsaBuilder가 공유하는 기반 클래스.
 
     두 Builder의 차이는 행동 선택 순서(_action_order)와 learn의 학습 여부뿐이다.
     """
@@ -117,7 +117,7 @@ class BaseBuilder:
         입력:
             grid: n×n 2차원 int 배열 (EMPTY=0, WALL=1)
             start, goal: (행, 열) 튜플
-            report: 직전 라운드의 통합 성적표 (첫 라운드는 None)
+            report: 직전 라운드의 성적표 (첫 라운드는 None)
         출력:
             {"type": "add_wall" | "remove_wall", "pos": (행, 열)} 또는 None.
             첫 라운드이거나 수정할 곳이 없으면 None.
@@ -147,8 +147,8 @@ class BaseBuilder:
         """직전 수정의 결과로 보상을 계산하고 학습한다.
 
         입력:
-            prev_report: 수정 전(직전 라운드) 통합 성적표 또는 None
-            next_report: 수정 후 이번 라운드 통합 성적표
+            prev_report: 수정 전(직전 라운드) 성적표 또는 None
+            next_report: 수정 후 이번 라운드 성적표
             edit_reverted: 성공률 0이라 수정이 취소되었으면 True
         출력: 보상 (float)
         """
@@ -292,42 +292,74 @@ class RuleBasedBuilder(BaseBuilder):
         return [ACTION_REMOVE_WALL]
 
 
-class QBuilder(BaseBuilder):
-    """Q-learning으로 행동을 고르는 Builder.
+class SarsaBuilder(BaseBuilder):
+    """SARSA로 행동을 고르는 Builder.
 
     q_table shape은 (성공률 구간 3, 최단 경로 구간 3, 행동 4)이고 0으로 시작한다.
     상태가 미로 크기와 무관하므로 시대가 바뀌어도 q_table을 유지한다.
+
+    SARSA 흐름:
+        learn에서 다음 상태 s'와 다음 행동 a'를 먼저 정하고, Q[s',a']로 Q[s,a]를 갱신한다.
+        a'는 pending_action에 저장되고, 다음 propose_edit가 그 행동을 실행한다.
+        첫 수정에서는 pending_action이 없으므로 현재 상태에서 ε-greedy로 고른다.
     """
 
     def __init__(self, rng, path_fn=None):
-        """입력은 BaseBuilder와 같다. q_table을 0으로 초기화한다."""
+        """입력은 BaseBuilder와 같다. q_table을 0으로 초기화하고 pending을 비운다."""
         super().__init__(rng, path_fn)
         self.q_table = np.zeros((N_SUCCESS_BINS, N_PATH_BINS, N_ACTIONS))
+        self.pending_state = None  # learn이 정한 다음 상태 s'
+        self.pending_action = None  # learn이 정한 다음 행동 a' (다음 propose_edit가 실행)
 
-    def _action_order(self, state):
+    def _greedy_order(self, state):
+        """상태에서 Q값이 큰 순서의 행동 번호 4개를 돌려준다. 같은 값은 무작위 순서."""
+        q_values = self.q_table[state]
+        shuffled = [int(a) for a in self.rng.permutation(N_ACTIONS)]
+        return sorted(shuffled, key=lambda a: -q_values[a])
+
+    def _epsilon_greedy_order(self, state):
         """ε-greedy로 첫 행동을 고르고, 나머지는 Q값이 큰 순서로 잇는다.
 
         입력: state (성공률 구간, 최단 경로 구간)
-        출력: 행동 번호 리스트 (4개 모두). 선택한 행동이 edit를 못 내면 다음 행동을 시도한다.
+        출력: 행동 번호 리스트 (4개 모두)
         """
-        q_values = self.q_table[state]
-        shuffled = [int(a) for a in self.rng.permutation(N_ACTIONS)]
-        greedy_order = sorted(shuffled, key=lambda a: -q_values[a])  # 같은 값은 무작위 순서
-
+        greedy_order = self._greedy_order(state)
         if self.rng.random() < config.BUILDER_EPSILON:
             first = int(self.rng.integers(N_ACTIONS))
             return [first] + [a for a in greedy_order if a != first]
         return greedy_order
 
-    def _update(self, reward, next_report):
-        """Q[s,a] += α × (보상 + γ × max Q[s'] − Q[s,a]) 로 학습한다.
+    def _action_order(self, state):
+        """이번 수정에서 시도할 행동 순서를 돌려준다.
 
-        입력: reward (float), next_report (s'를 계산할 이번 라운드 통합 성적표)
-        출력: 없음. 직전에 수정을 내지 못했으면 (last_action이 None) 학습하지 않는다.
+        입력: state (성공률 구간, 최단 경로 구간)
+        출력: 행동 번호 리스트 (4개 모두).
+            pending_action이 있으면 그 행동이 먼저이고, 나머지는 Q값 순서다.
+            없으면(첫 수정) ε-greedy 순서다.
+            앞선 행동이 edit를 못 내면 propose_edit가 다음 행동을 시도한다.
         """
-        if self.last_state is None or self.last_action is None:
-            return
+        if self.pending_action is not None:
+            first = self.pending_action
+            return [first] + [a for a in self._greedy_order(state) if a != first]
+        return self._epsilon_greedy_order(state)
+
+    def _update(self, reward, next_report):
+        """SARSA 업데이트를 하고 다음 행동을 정해 둔다.
+
+        순서: 다음 상태 s' 계산 → s'에서 ε-greedy로 a' 선택 →
+            Q[s,a] += α × (보상 + γ × Q[s',a'] − Q[s,a]) → s', a'를 pending에 저장.
+
+        입력: reward (float), next_report (s'를 계산할 이번 라운드 성적표)
+        출력: 없음. 직전에 수정을 내지 못했으면 (last_action이 None) Q는 갱신하지 않고
+            다음 행동만 정해 둔다.
+        """
         next_state = state_from_report(next_report)
-        s, a = self.last_state, self.last_action
-        target = reward + config.BUILDER_GAMMA * float(np.max(self.q_table[next_state]))
-        self.q_table[s][a] += config.BUILDER_ALPHA * (target - self.q_table[s][a])
+        next_action = self._epsilon_greedy_order(next_state)[0]
+
+        if self.last_state is not None and self.last_action is not None:
+            s, a = self.last_state, self.last_action
+            target = reward + config.BUILDER_GAMMA * self.q_table[next_state][next_action]
+            self.q_table[s][a] += config.BUILDER_ALPHA * (target - self.q_table[s][a])
+
+        self.pending_state = next_state
+        self.pending_action = next_action
