@@ -18,9 +18,6 @@ class FakeBuilder:
         """환경과 직전 성적표를 받아 고정된 수정안을 반환한다."""
         return {"type": "add_wall", "pos": (1, 1)}
 
-    def learn(self, prev_report, next_report, edit_reverted):
-        """수정 전후 성적표를 받아 되돌림 여부에 따른 보상을 반환한다."""
-        return -1 if edit_reverted else 1
 
 
 class FakeSolver:
@@ -38,13 +35,15 @@ class FakeSolver:
 def _install_fakes(monkeypatch, tmp_path, success_rate):
     """임시 로그 위치와 성공률을 받아 가짜 에이전트 및 격자를 설치한다."""
     calls = []
+    learned = []
 
     def make_agents(mode, size):
         """제작 방식과 크기를 받아 테스트용 에이전트와 실행기를 반환한다."""
-        q, sarsa = FakeSolver(), FakeSolver()
-        q.reset_for_size(size)
-        sarsa.reset_for_size(size)
-        return FakeBuilder(), q, sarsa, run_round
+        builder, solver = FakeBuilder(), FakeSolver()
+        if mode == "sarsa":
+            builder.q_table = np.arange(36).reshape(3, 3, 4)
+        solver.reset_for_size(size)
+        return builder, solver, run_round
 
     def run_round(env, agent, episodes):
         """환경과 Solver 및 판 수를 받아 일정한 성적표를 반환한다."""
@@ -60,34 +59,45 @@ def _install_fakes(monkeypatch, tmp_path, success_rate):
         """요청한 크기의 빈 테스트 격자를 반환한다."""
         return np.zeros((size, size), dtype=int)
 
+    def learn(builder, prev_report, next_report, edit_reverted):
+        """Builder에 전달된 이전·현재 성적표와 되돌림 여부를 기록한다."""
+        learned.append((prev_report, next_report, edit_reverted))
+        return -1 if edit_reverted else 1
+
+    monkeypatch.setattr(FakeBuilder, "learn", learn, raising=False)
     monkeypatch.setattr(simulation, "_make_agents", make_agents)
     monkeypatch.setattr(simulation, "generate_maze", open_maze)
     monkeypatch.setattr(simulation.config, "LOG_DIR", tmp_path)
-    return calls
+    return calls, learned
 
 
 def test_round_results_and_log(monkeypatch, tmp_path):
-    """세 라운드의 성적표 합산, 동일 격자 사용과 로그 내용을 검증한다."""
-    calls = _install_fakes(monkeypatch, tmp_path, 0.0)
+    """세 라운드의 단일 Solver 실행, Builder 입력, 로그 내용을 검증한다."""
+    calls, learned = _install_fakes(monkeypatch, tmp_path, 0.0)
     sim = simulation.Simulation()
     results = [sim.step_round() for _ in range(3)]
     result = results[-1]
     assert set(result) == {
         "round", "era", "size", "grid", "edit", "edit_reverted", "reports",
         "best_paths", "q_values_max", "builder_state", "builder_action", "builder_reward",
+        "builder_q_table",
         "era_changed", "finished",
     }
     assert result["round"] == 3
     assert result["edit_reverted"] is True
     assert result["grid"][1][1] == WALL
     assert sim.grid[1, 1] == EMPTY
-    assert result["reports"]["merged"]["visit_counts"][0][0] == 2
-    for q_call, sarsa_call in zip(calls[::2], calls[1::2], strict=True):
-        q_env, q_episodes = q_call
-        sarsa_env, sarsa_episodes = sarsa_call
-        assert q_env is not sarsa_env
-        assert np.array_equal(q_env.grid, sarsa_env.grid)
-        assert q_episodes == sarsa_episodes == simulation.config.ROUND_EPISODES
+    for key in ("reports", "best_paths", "q_values_max"):
+        assert set(result[key]) == {"q"}
+    assert result["builder_q_table"] == np.arange(36).reshape(3, 3, 4).tolist()
+    assert result["reports"]["q"]["visit_counts"][0][0] == 1
+    assert len(calls) == len(learned) == 3
+    for env, episodes in calls:
+        assert env.grid[1, 1] == WALL
+        assert episodes == simulation.config.ROUND_EPISODES
+    assert learned[0][0] is None
+    assert learned[1][0] is learned[0][1]
+    assert all(entry[2] for entry in learned)
     log_file, = tmp_path.glob("run_*.jsonl")
     assert [json.loads(line) for line in log_file.read_text().splitlines()] == results
 
@@ -101,6 +111,7 @@ def test_era_transition_and_finish(monkeypatch, tmp_path):
     result = sim.step_round()
     assert result["size"] == evolution.config.ERA_SIZES[0]
     assert result["era_changed"] is True
+    assert result["builder_q_table"] is None
     assert sim.size == evolution.config.ERA_SIZES[1]
     assert sim.is_finished() is False
     assert sim.run_all() is None
