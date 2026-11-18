@@ -109,13 +109,17 @@ export default function App() {
           status={state.status}
           speed={state.speed}
           builderMode={state.builder_mode}
+          engineMode={state.mode}
+          engineAvailable={state.engine_available}
           seed={state.seed}
           busy={busy}
           onStart={(seedVal) => actions.start(state.speed, state.builder_mode, seedVal)}
           onPause={() => actions.pause()}
           onResume={() => actions.resume()}
           onStep={() => actions.step()}
-          onReset={(mode, seedVal) => actions.reset(mode ?? state.builder_mode, seedVal)}
+          onReset={(mode, seedVal, reqEngine) =>
+            actions.reset(mode ?? state.builder_mode, seedVal, reqEngine)
+          }
           onSpeedChange={(spd) => actions.setSpeed(spd)}
         />
 
@@ -161,7 +165,7 @@ export default function App() {
 
         {/* 중앙 미로 시뮬레이션 + 탈출 AI / 제작 AI 패널 */}
         <div className="grid grid-cols-1 gap-3 xl:grid-cols-12">
-          <div className="xl:col-span-7">
+          <div className="min-w-0 xl:col-span-7">
             <MazeGrid
               currentGrid={state.grid}
               currentWalls={state.walls}
@@ -177,7 +181,7 @@ export default function App() {
             />
           </div>
 
-          <div className="flex flex-col gap-3 xl:col-span-5">
+          <div className="flex min-w-0 flex-col gap-3 xl:col-span-5">
             <AgentPanel
               lastResult={lastResult}
               history={state.history}

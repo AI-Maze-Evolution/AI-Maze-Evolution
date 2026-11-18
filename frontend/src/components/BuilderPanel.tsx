@@ -209,7 +209,7 @@ export function BuilderPanel({
   const latestActionLabel = getBuilderActionLabel(lastResult?.builder_action_name);
 
   return (
-    <section className="border border-lab-border border-l-2 border-l-violet-400 bg-lab-surface">
+    <section className="min-w-0 overflow-hidden border border-lab-border border-l-2 border-l-violet-400 bg-lab-surface">
       <div className="flex items-center justify-between border-b border-lab-border px-3 py-2">
         <div>
           <h2 className="font-mono text-xs font-semibold text-violet-300">
