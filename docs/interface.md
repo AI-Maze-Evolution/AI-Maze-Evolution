@@ -76,8 +76,11 @@
   - 원본은 바꾸지 않고 복사본을 돌려준다
   - 시작점·출구를 바꾸려 하면 ValueError
   - config.ENABLE_TRAPS가 False인데 함정 관련 edit가 오면 ValueError
+  - move_wall은 from이 WALL, pos가 EMPTY여야 하며 아니면 ValueError. from·pos 모두 시작점·출구 불가
+  - remove_wall은 이번 변경에서 제작 AI가 쓰지 않지만 apply_edit의 지원은 유지한다
 - edit 형식:
   {"type": "add_wall" | "remove_wall", "pos": (행, 열)}
+  {"type": "move_wall", "from": (행, 열), "pos": (행, 열)}  — from의 벽을 비우고 pos에 벽을 세움
   (예약) "add_trap" | "remove_trap"
 
 ## 5. 미로 환경 (core/environment.py) — 윤중
@@ -158,12 +161,14 @@ RuleBasedBuilder(rng), SarsaBuilder(rng) 공통:
 
 | 번호 | 이름 | 의미 |
 |---|---|---|
-| 0 | block_hot | 방문이 가장 많은 칸에 벽 |
-| 1 | block_path | 최단 경로 위 칸에 벽 |
-| 2 | random_wall | 무작위 빈칸에 벽 |
-| 3 | remove_wall | 무작위 벽 제거 |
+| 0 | block_hot | 방문이 가장 많은 칸에 벽 추가 |
+| 1 | block_path | 최단 경로 위 칸에 벽 추가 |
+| 2 | move_to_path | 기존 벽 하나를 최단 경로 위 칸으로 이동 |
+| 3 | move_to_hot | 기존 벽 하나를 방문이 많은 칸으로 이동 |
 
 - 이름 목록은 agents/builder.py의 ACTION_NAMES를 기준으로 하며, Simulation은 이 상수로 builder_action을 builder_action_name으로 변환한다
+- 제작 AI는 매 라운드 길을 막는 수정을 낸다. 벽 수가 BUILDER_MAX_WALL_DENSITY 상한에 닿으면 추가 행동(0, 1)은 같은 목표 칸으로의 이동(move_wall)으로 대체한다. 이동할 벽은 주변 방문 횟수가 가장 적은 벽을 고른다
+- remove_wall은 이번 변경에서 제작 AI가 쓰지 않지만 apply_edit의 지원은 유지한다
 
 - 상태는 미로 크기와 무관하게 설계한다 (시대가 바뀌어도 학습 유지)
 - 상태·행동 상세 설계는 담당자가 정한다 (agents/AGENTS.md 참고)
@@ -212,7 +217,7 @@ RuleBasedBuilder(rng), SarsaBuilder(rng) 공통:
       "builder_mode": "sarsa" | "rule",
       "builder_state": 값 또는 null,
       "builder_action": 값 또는 null,
-      "builder_action_name": "block_hot" | "block_path" | "random_wall" | "remove_wall" | null,
+      "builder_action_name": "block_hot" | "block_path" | "move_to_path" | "move_to_hot" | null,
       "builder_reward": float,
       "builder_q_table": 3×3×4 리스트 또는 null (SarsaBuilder일 때만),
       "era_changed": bool,
@@ -220,6 +225,7 @@ RuleBasedBuilder(rng), SarsaBuilder(rng) 공통:
       "finished": bool
     }
 
+- edit: 4번 edit 형식 그대로 (type이 "move_wall"이면 "from" 키가 추가로 있고, 좌표는 [행, 열])
 - q_values_max: 각 칸에서 4방향 Q값 중 최댓값 (히트맵용)
 - 로그 저장 시 NumPy 배열은 리스트로 변환
 
@@ -233,7 +239,7 @@ RuleBasedBuilder(rng), SarsaBuilder(rng) 공통:
 | SEED_OFFSET | maze 0, q 1, builder 3 | 모듈별 시드 오프셋 |
 | ENABLE_TRAPS | False | 함정 확장 스위치 |
 | ERA_SIZES | [5, 7, 10] | 시대별 미로 크기 |
-| WALL_DENSITY | {5: 0.2, 7: 0.25, 10: 0.3} | 초기 벽 비율 |
+| WALL_DENSITY | {5: 0.1, 7: 0.15, 10: 0.2} | 초기 벽 비율 |
 | MAX_STEPS_FACTOR | 4 | 한 판 최대 걸음 = 4 × n × n |
 | ROUND_EPISODES | 50 | Builder 수정 1회당 탈출 도전 횟수 |
 | ROUND_EARLY_EPISODES | 10 | early_success_rate 계산 구간 |
@@ -253,6 +259,7 @@ RuleBasedBuilder(rng), SarsaBuilder(rng) 공통:
 | BUILDER_EPSILON | 0.2 | Builder 탐험 |
 | BUILDER_TARGET_LOW | 0.3 | 목표 성공률 구간 하한 |
 | BUILDER_TARGET_HIGH | 0.7 | 목표 성공률 구간 상한 |
+| BUILDER_MAX_WALL_DENSITY | {5: 0.3, 7: 0.3, 10: 0.3} | 제작 AI가 벽을 추가할 수 있는 최대 벽 비율 (상한이면 추가 대신 이동) |
 | ERA_MIN_ROUNDS | 10 | 시대 최소 라운드 |
 | ERA_MAX_ROUNDS | 40 | 시대 최대 라운드 |
 | ERA_WINDOW | 5 | 시대 전환 판단 구간 |
@@ -345,7 +352,7 @@ run_all()은 API에서 사용하지 않는 헤드리스 실행용이다
 | start | [int, int] | 시작점 |
 | goal | [int, int] | 출구 |
 | grid | list[list[int]] | 이번 라운드에 사용된 미로 (수정 반영 후) |
-| edit | {"type": str, "pos": [int, int]} \| null | 제작 AI가 적용한 수정 |
+| edit | {"type": str, "pos": [int, int], "from": [int, int]} \| null | 제작 AI가 적용한 수정 ("add_wall", "remove_wall", "move_wall". "from"은 move_wall일 때만 있음) |
 | edit_reverted | bool | 성공률 0으로 수정이 되돌려졌는지 |
 | reports | {"q": Report} | 탈출 AI 성적표 |
 | best_paths | {"q": list[[int, int]]} | 탈출 AI의 현재 최적 경로 |
@@ -353,7 +360,7 @@ run_all()은 API에서 사용하지 않는 헤드리스 실행용이다
 | builder_mode | "sarsa" \| "rule" | 제작 AI 종류 |
 | builder_state | [int, int] \| null | 제작 AI 상태 (성공률 구간, 최단 경로 구간) |
 | builder_action | int \| null | 제작 AI 행동 번호 (0~3) |
-| builder_action_name | str \| null | "block_hot", "block_path", "random_wall", "remove_wall" |
+| builder_action_name | str \| null | "block_hot", "block_path", "move_to_path", "move_to_hot" |
 | builder_reward | float | 제작 AI가 이번 라운드에 받은 보상 |
 | builder_q_table | list[list[list[float]]] \| null | 3×3×4, rule 모드면 null |
 | era_changed | bool | 이번 라운드 후 시대가 바뀌었는지 |
@@ -364,10 +371,10 @@ builder_action 번호와 builder_action_name 대응:
 
 | 번호 | 이름 | 의미 |
 |---|---|---|
-| 0 | block_hot | 방문이 가장 많은 칸에 벽 |
-| 1 | block_path | 최단 경로 위 칸에 벽 |
-| 2 | random_wall | 무작위 빈칸에 벽 |
-| 3 | remove_wall | 무작위 벽 제거 |
+| 0 | block_hot | 방문이 가장 많은 칸에 벽 추가 |
+| 1 | block_path | 최단 경로 위 칸에 벽 추가 |
+| 2 | move_to_path | 기존 벽 하나를 최단 경로 위 칸으로 이동 |
+| 3 | move_to_hot | 기존 벽 하나를 방문이 많은 칸으로 이동 |
 
 - 이름 목록은 agents/builder.py의 ACTION_NAMES를 기준으로 하며, Simulation은 이 상수로 builder_action을 builder_action_name으로 변환한다
 
@@ -415,7 +422,7 @@ HistoryItem:
 | avg_steps | float |
 | builder_reward | float |
 | builder_action_name | str \| null |
-| edit_type | str \| null |
+| edit_type | "add_wall" \| "remove_wall" \| "move_wall" \| null |
 | edit_reverted | bool |
 | era_changed | bool |
 
