@@ -39,3 +39,5 @@
 
 - main에는 PR로만 합친다
 - 합치는 시점: 1차 통합, 확장 종료
+- main은 보호 브랜치: 직접 push 불가, PR + CI(test) 통과 시에만 머지 가능
+- PR을 올리면 GitHub Actions가 자동으로 pytest를 실행한다
