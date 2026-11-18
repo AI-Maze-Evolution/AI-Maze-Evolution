@@ -12,7 +12,7 @@ interface AgentPanelProps {
 }
 
 function formatPathPreview(path: Coord[], currentIdx: number): string {
-  if (!path.length) return "No trajectory yet";
+  if (!path.length) return "아직 이동 경로가 없습니다.";
   const clamped = Math.min(currentIdx, path.length - 1);
   const start = Math.max(0, clamped - 3);
   const slice = path.slice(start, start + 7);
@@ -39,11 +39,11 @@ export function AgentPanel({ lastResult, history, stepIndex }: AgentPanelProps) 
     <section className="border border-lab-border border-l-2 border-l-sky-400 bg-lab-surface">
       <div className="flex items-center justify-between border-b border-lab-border px-3 py-2">
         <div>
-          <h2 className="font-mono text-xs font-semibold uppercase tracking-wider text-sky-300">
-            Escape Solver · Q-Learning
+          <h2 className="font-mono text-xs font-semibold text-sky-300">
+            탈출 AI · Q-Learning
           </h2>
           <p className="text-[11px] text-slate-500">
-            Off-policy TD(0) · {report?.n_episodes ?? 50} episodes/round · Greedy Best-Path Playback
+            오프폴리시 TD(0) · 라운드당 {report?.n_episodes ?? 50}회 에피소드 · 최적 경로 재생
           </p>
         </div>
         {deltaSuccess !== null && (
@@ -51,6 +51,7 @@ export function AgentPanel({ lastResult, history, stepIndex }: AgentPanelProps) 
             className={`font-mono text-xs font-semibold tabular-nums ${
               deltaSuccess >= 0 ? "text-emerald-400" : "text-rose-400"
             }`}
+            title="직전 라운드 대비 탈출 성공률 변화"
           >
             {deltaSuccess >= 0 ? "+" : ""}
             {(deltaSuccess * 100).toFixed(1)}%
@@ -59,31 +60,31 @@ export function AgentPanel({ lastResult, history, stepIndex }: AgentPanelProps) 
       </div>
 
       <div className="space-y-3 p-3">
-        {/* Playback Position & Derived Action */}
+        {/* 현재 위치, 행동, 경로 길이 */}
         <div className="grid grid-cols-3 gap-2 border border-lab-border bg-lab-bg p-2 font-mono text-[11px] tabular-nums">
           <div>
-            <div className="text-[9px] uppercase text-slate-500">Current Pos</div>
+            <div className="text-[10px] text-slate-500">현재 위치</div>
             <div className="font-semibold text-slate-100">
               {pos ? `(${pos[0]}, ${pos[1]})` : "—"}
             </div>
           </div>
           <div>
-            <div className="text-[9px] uppercase text-slate-500">Derived Action</div>
+            <div className="text-[10px] text-slate-500">선택 행동</div>
             <div className="font-semibold text-sky-300">{action.label}</div>
           </div>
           <div>
-            <div className="text-[9px] uppercase text-slate-500">Path Steps</div>
+            <div className="text-[10px] text-slate-500">최적 경로 길이</div>
             <div className="font-semibold text-slate-200">
-              {path.length ? Math.max(0, path.length - 1) : "—"}
+              {path.length ? `${Math.max(0, path.length - 1)}회` : "—"}
             </div>
           </div>
         </div>
 
-        {/* Success Rate & Early Adaptation Bars */}
+        {/* 탈출 성공률 & 초기 적응률 */}
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
           <div>
             <div className="flex justify-between font-mono text-[11px] tabular-nums">
-              <span className="text-slate-400">Success Rate</span>
+              <span className="text-slate-400">탈출 성공률</span>
               <span className="font-semibold text-slate-100">
                 {report ? `${successPct.toFixed(1)}%` : "—"}
               </span>
@@ -98,7 +99,7 @@ export function AgentPanel({ lastResult, history, stepIndex }: AgentPanelProps) 
 
           <div>
             <div className="flex justify-between font-mono text-[11px] tabular-nums">
-              <span className="text-slate-400">Early Adaptation</span>
+              <span className="text-slate-400">초기 적응률</span>
               <span className="text-slate-200">
                 {report ? `${earlyPct.toFixed(1)}%` : "—"}
               </span>
@@ -112,34 +113,34 @@ export function AgentPanel({ lastResult, history, stepIndex }: AgentPanelProps) 
           </div>
         </div>
 
-        {/* Scalar Metrics */}
+        {/* 평균 보상, 평균 이동 횟수, BFS 최단 거리 */}
         <div className="grid grid-cols-3 gap-2 border-t border-lab-border pt-2 font-mono text-[11px] tabular-nums">
           <div>
-            <span className="block text-[9px] uppercase text-slate-500">Avg Reward</span>
+            <span className="block text-[10px] text-slate-500">평균 보상</span>
             <span className="font-semibold text-slate-100">
               {report ? report.avg_reward.toFixed(1) : "—"}
             </span>
           </div>
           <div>
-            <span className="block text-[9px] uppercase text-slate-500">Avg Steps</span>
+            <span className="block text-[10px] text-slate-500">평균 이동 횟수</span>
             <span className="font-semibold text-slate-100">
-              {report ? report.avg_steps.toFixed(1) : "—"}
+              {report ? `${report.avg_steps.toFixed(1)}회` : "—"}
             </span>
           </div>
           <div>
-            <span className="block text-[9px] uppercase text-slate-500">BFS Shortest</span>
+            <span className="block text-[10px] text-slate-500">BFS 최단 거리</span>
             <span className="font-semibold text-emerald-300">
-              {report && report.shortest_path_len !== null ? report.shortest_path_len : "—"}
+              {report && report.shortest_path_len !== null ? `${report.shortest_path_len}칸` : "—"}
             </span>
           </div>
         </div>
 
-        {/* Greedy Path Breadcrumb */}
+        {/* 현재 이동 경로 프리뷰 */}
         <div className="border-t border-lab-border pt-2">
-          <div className="flex items-center justify-between font-mono text-[9px] uppercase text-slate-500">
-            <span>Greedy Best Path (best_paths.q)</span>
+          <div className="flex items-center justify-between font-mono text-[10px] text-slate-500">
+            <span>현재 이동 경로</span>
             <span className="tabular-nums">
-              {lastResult ? `Round ${lastResult.round}` : "Waiting"}
+              {lastResult ? `라운드 ${lastResult.round}` : "대기 중"}
             </span>
           </div>
           <div className="mt-0.5 truncate font-mono text-[10px] text-slate-400 tabular-nums">

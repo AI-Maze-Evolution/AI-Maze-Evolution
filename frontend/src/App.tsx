@@ -11,6 +11,8 @@ import { MazeGrid } from "./components/MazeGrid";
 import { MetricCard } from "./components/MetricCard";
 import { StatusBar } from "./components/StatusBar";
 import { useSimulationSocket } from "./hooks/useSimulationSocket";
+import { formatEditTarget } from "./maze/wallUtils";
+import { getBuilderActionLabel } from "./types/simulation";
 
 export default function App() {
   const { state, connectionStatus, actionError, busy, actions } = useSimulationSocket();
@@ -75,6 +77,13 @@ export default function App() {
   const combinedError = actionError ?? state.error;
   const qReport = lastResult?.reports.q ?? null;
 
+  const latestEditSummary = (() => {
+    if (!lastResult?.edit) {
+      return state.builder_mode === "sarsa" ? "SARSA 제작 AI" : "규칙 기반 제작 AI";
+    }
+    return `${formatEditTarget(lastResult.edit)}${lastResult.edit_reverted ? " · 되돌림" : ""}`;
+  })();
+
   return (
     <div className="min-h-screen bg-lab-bg text-lab-text">
       <Header
@@ -110,60 +119,56 @@ export default function App() {
           onSpeedChange={(spd) => actions.setSpeed(spd)}
         />
 
-        {/* Top KPI Strip (Q-Learning Solver + SARSA/Rule Builder) */}
+        {/* 핵심 지표 요약 */}
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
           <MetricCard
-            label="Q-Learning Success"
+            label="Q-Learning 탈출 성공률"
             value={qReport ? `${(qReport.success_rate * 100).toFixed(1)}%` : "—"}
             sublabel={
               qReport
-                ? `Avg ${qReport.avg_steps.toFixed(1)} steps · R ${qReport.avg_reward.toFixed(1)}`
-                : "Waiting for round 1"
+                ? `평균 ${qReport.avg_steps.toFixed(1)}회 이동 · 보상 ${qReport.avg_reward.toFixed(1)}`
+                : "1라운드 실행 대기 중"
             }
             accent="q"
           />
           <MetricCard
-            label="Early Adaptation"
+            label="초기 적응률"
             value={qReport ? `${(qReport.early_success_rate * 100).toFixed(1)}%` : "—"}
-            sublabel="First 10 episodes post-edit"
+            sublabel="미로 수정 직후 초기 10회 에피소드"
             accent="merged"
           />
           <MetricCard
-            label="Builder Action"
-            value={lastResult?.builder_action_name ?? "—"}
-            sublabel={
-              lastResult?.edit
-                ? `${lastResult.edit.type} (${lastResult.edit.pos[0]},${lastResult.edit.pos[1]})${
-                    lastResult.edit_reverted ? " · reverted" : ""
-                  }`
-                : `${state.builder_mode.toUpperCase()} Builder`
-            }
+            label="제작 AI 행동"
+            value={getBuilderActionLabel(lastResult?.builder_action_name)}
+            sublabel={latestEditSummary}
             accent="builder"
           />
           <MetricCard
-            label="Builder Reward"
+            label="미로 제작 AI 보상"
             value={lastResult ? lastResult.builder_reward.toFixed(2) : "—"}
-            sublabel="Target solver band 30%–70%"
+            sublabel="목표 탈출 성공률 구간 30%–70%"
             accent="sarsa"
           />
           <MetricCard
-            label="BFS Shortest Path"
+            label="BFS 최단 경로"
             value={
-              qReport && qReport.shortest_path_len !== null ? `${qReport.shortest_path_len}` : "—"
+              qReport && qReport.shortest_path_len !== null ? `${qReport.shortest_path_len}칸` : "—"
             }
-            sublabel={`Era ${state.era} · Next Grid ${state.size}×${state.size}`}
+            sublabel={`시대 ${state.era} · 다음 미로 ${state.size}×${state.size}`}
             accent="neutral"
           />
         </div>
 
-        {/* Main Maze Stage + Solver & Builder Inspectors */}
+        {/* 중앙 미로 시뮬레이션 + 탈출 AI / 제작 AI 패널 */}
         <div className="grid grid-cols-1 gap-3 xl:grid-cols-12">
           <div className="xl:col-span-7">
             <MazeGrid
               currentGrid={state.grid}
+              currentWalls={state.walls}
               currentStart={state.start}
               currentGoal={state.goal}
               prevGrid={state.prev_grid}
+              prevWalls={state.prev_walls}
               lastResult={lastResult}
               stepIndex={stepIndex}
               maxPathSteps={maxPathSteps}
@@ -182,7 +187,11 @@ export default function App() {
               builderMode={state.builder_mode}
               lastResult={lastResult}
               currentGrid={state.grid}
+              currentWalls={state.walls}
+              currentStart={state.start}
+              currentGoal={state.goal}
               prevGrid={state.prev_grid}
+              prevWalls={state.prev_walls}
               editHistory={state.edit_history}
               era={state.era}
               eraSizes={state.era_sizes}
@@ -190,14 +199,14 @@ export default function App() {
           </div>
         </div>
 
-        {/* Training Analytics */}
-        <section aria-label="Learning Analytics Charts" className="space-y-2">
-          <div className="flex items-center justify-between border-b border-lab-border pb-1.5">
-            <h2 className="font-mono text-xs font-semibold uppercase tracking-wider text-slate-300">
-              Training Analytics &amp; Convergence Curves
+        {/* 학습 분석 그래프 */}
+        <section aria-label="학습 분석 그래프" className="space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-lab-border pb-1.5">
+            <h2 className="font-mono text-xs font-semibold text-slate-300">
+              학습 분석 및 수렴 추이
             </h2>
             <span className="font-mono text-[10px] text-slate-500">
-              Real-time updates via WS /ws/simulation · dashed verticals = Era transitions
+              실시간 연결로 자동 갱신 · 점선 세로선 = 시대 전환 지점
             </span>
           </div>
 

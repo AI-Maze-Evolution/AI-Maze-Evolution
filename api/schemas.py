@@ -1,27 +1,37 @@
 """FastAPI REST 및 WebSocket 통신용 Pydantic 스키마 정의.
 
-docs/interface.md 11번 및 15번(외부 제어 인터페이스) 규격을 그대로 따른다.
+docs/interface.md 11번·15번 및 벽 이동(move_wall)·경계선 벽(walls) 확장을 수용한다.
 """
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 EngineMode = Literal["DEMO", "REAL"]
 RequestedEngineMode = Literal["auto", "demo", "real"]
 BuilderMode = Literal["sarsa", "rule"]
 CoreSimulationStatus = Literal["idle", "running", "paused", "finished"]
 SimulationStatus = Literal["idle", "running", "paused", "finished", "error"]
-BuilderActionName = Literal["block_hot", "block_path", "random_wall", "remove_wall"]
+BuilderActionName = Literal[
+    "block_hot",
+    "block_path",
+    "random_wall",
+    "remove_wall",
+    "move_to_path",
+    "move_to_hot",
+]
 
 
 class MazeEditModel(BaseModel):
-    """Builder가 적용한 미로 수정 항목."""
+    """Builder가 적용한 미로 수정 항목 (칸 벽 및 경계선 벽·벽 이동 모두 허용)."""
 
-    type: Literal["add_wall", "remove_wall", "add_trap", "remove_trap"]
-    pos: list[int]
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    type: Literal["add_wall", "remove_wall", "move_wall", "add_trap", "remove_trap"]
+    pos: Any = None
+    from_pos: Any = Field(default=None, alias="from")
 
 
 class SolverReportModel(BaseModel):
@@ -57,7 +67,9 @@ class QValuesMaxModel(BaseModel):
 
 
 class RoundResultModel(BaseModel):
-    """docs/interface.md 11번 및 15-5번 RoundResult 공식 규격."""
+    """docs/interface.md 11번 및 15-5번 RoundResult 공식 규격 (+ 경계선 벽 확장 필드)."""
+
+    model_config = ConfigDict(extra="allow")
 
     round: int
     era: int
@@ -65,6 +77,7 @@ class RoundResultModel(BaseModel):
     start: list[int]
     goal: list[int]
     grid: list[list[int]]
+    walls: Any = None
     edit: MazeEditModel | None
     edit_reverted: bool
     reports: RoundReportsModel
@@ -73,7 +86,7 @@ class RoundResultModel(BaseModel):
     builder_mode: BuilderMode
     builder_state: list[int] | None = None
     builder_action: int | None = None
-    builder_action_name: BuilderActionName | None = None
+    builder_action_name: str | None = None
     builder_reward: float
     builder_q_table: list[list[list[float]]] | None = None
     era_changed: bool
@@ -92,7 +105,7 @@ class HistoryItemModel(BaseModel):
     avg_reward: float
     avg_steps: float
     builder_reward: float
-    builder_action_name: BuilderActionName | None = None
+    builder_action_name: str | None = None
     edit_type: str | None = None
     edit_reverted: bool
     era_changed: bool
@@ -109,7 +122,7 @@ class EditHistoryEntryModel(BaseModel):
     edit_reverted: bool
     builder_state: list[int] | None = None
     builder_action: int | None = None
-    builder_action_name: BuilderActionName | None = None
+    builder_action_name: str | None = None
     builder_reward: float
     success_rate: float
     shortest_path_len: int | None = None
@@ -118,7 +131,8 @@ class EditHistoryEntryModel(BaseModel):
 class SimulationStateResponse(BaseModel):
     """docs/interface.md 15-6번 SimulationState + API 래퍼 메타데이터 응답."""
 
-    # 15-6번 SimulationState 공식 필드
+    model_config = ConfigDict(extra="allow")
+
     status: SimulationStatus
     builder_mode: BuilderMode
     seed: int
@@ -128,16 +142,17 @@ class SimulationStateResponse(BaseModel):
     start: list[int]
     goal: list[int]
     grid: list[list[int]]
+    walls: Any = None
     finished: bool
     last_result: RoundResultModel | None = None
     history: list[HistoryItemModel] = Field(default_factory=list)
 
-    # API 브리지 부가 메타데이터
     mode: EngineMode
     engine_available: bool
     speed: float
     era_sizes: list[int]
     prev_grid: list[list[int]] | None = None
+    prev_walls: Any = None
     edit_history: list[EditHistoryEntryModel] = Field(default_factory=list)
     era_transitions: list[int] = Field(default_factory=list)
     error: str | None = None

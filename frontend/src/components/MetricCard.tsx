@@ -31,10 +31,10 @@ export function MetricCard({
     <div
       className={`border border-lab-border border-t-2 bg-lab-surface px-3 py-2 ${ACCENT_BAR[accent]}`}
     >
-      <div className="font-mono text-[10px] uppercase tracking-wider text-slate-400">
+      <div className="font-mono text-[11px] tracking-wide text-slate-400">
         {label}
       </div>
-      <div className={`mt-0.5 font-mono text-lg font-semibold tabular-nums ${ACCENT_VALUE[accent]}`}>
+      <div className={`mt-0.5 truncate font-mono text-lg font-semibold tabular-nums ${ACCENT_VALUE[accent]}`}>
         {value}
       </div>
       {sublabel && <div className="mt-0.5 text-[11px] text-slate-500">{sublabel}</div>}

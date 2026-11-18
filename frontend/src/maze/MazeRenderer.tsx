@@ -1,12 +1,19 @@
 import { useMemo } from "react";
 import type { Coord, MazeEdit, OverlayMode } from "../types/simulation";
 import { AgentRenderer } from "./AgentRenderer";
+import {
+  edgeToSegment,
+  extractEditEdges,
+  parseEdgeWalls,
+} from "./wallUtils";
 
 interface MazeRendererProps {
   grid: number[][];
+  walls?: unknown;
   start: Coord;
   goal: Coord;
   prevGrid: number[][] | null;
+  prevWalls?: unknown;
   edit: MazeEdit | null;
   editReverted: boolean;
   qPath: Coord[];
@@ -38,9 +45,11 @@ function interpolateHeatmapColor(norm: number, mode: OverlayMode): string {
 
 export function MazeRenderer({
   grid,
+  walls,
   start,
   goal,
   prevGrid,
+  prevWalls,
   edit,
   editReverted,
   qPath,
@@ -56,6 +65,26 @@ export function MazeRenderer({
   const cellSize = VIEWPORT_GRID_SIZE / size;
   const totalViewBox = VIEWPORT_GRID_SIZE + AXIS_MARGIN + 10;
 
+  // 경계선 벽 데이터가 존재하면 칸 채우기 대신 이웃 두 칸 사이 경계선에 벽을 그린다.
+  const edgeWalls = useMemo(() => parseEdgeWalls(walls), [walls]);
+  const prevEdgeWalls = useMemo(() => parseEdgeWalls(prevWalls), [prevWalls]);
+  const isEdgeWallMode = edgeWalls !== null;
+
+  const prevEdgeKeys = useMemo(() => {
+    if (!prevEdgeWalls) return new Set<string>();
+    return new Set(prevEdgeWalls.map((e) => e.key));
+  }, [prevEdgeWalls]);
+
+  const currentEdgeKeys = useMemo(() => {
+    if (!edgeWalls) return new Set<string>();
+    return new Set(edgeWalls.map((e) => e.key));
+  }, [edgeWalls]);
+
+  const removedEdges = useMemo(() => {
+    if (!prevEdgeWalls || !edgeWalls) return [];
+    return prevEdgeWalls.filter((e) => !currentEdgeKeys.has(e.key));
+  }, [prevEdgeWalls, edgeWalls, currentEdgeKeys]);
+
   const activeMatrix = useMemo(() => {
     if (overlayMode === "q_heatmap") return qHeatmap;
     if (overlayMode === "visits") return visitCounts;
@@ -68,7 +97,7 @@ export function MazeRenderer({
     let max = -Infinity;
     for (let r = 0; r < size; r += 1) {
       for (let c = 0; c < size; c += 1) {
-        if (grid[r]?.[c] === 1) continue;
+        if (!isEdgeWallMode && grid[r]?.[c] === 1) continue;
         const v = activeMatrix[r]?.[c];
         if (typeof v === "number" && Number.isFinite(v)) {
           if (v < min) min = v;
@@ -80,17 +109,23 @@ export function MazeRenderer({
       return { minVal: 0, maxVal: 1 };
     }
     return { minVal: min, maxVal: max };
-  }, [activeMatrix, grid, size]);
+  }, [activeMatrix, grid, size, isEdgeWallMode]);
+
+  const { targetEdge, fromEdge, targetCell, fromCell } = useMemo(
+    () => extractEditEdges(edit),
+    [edit],
+  );
 
   const badgeSize = Math.max(15, Math.min(24, cellSize * 0.34));
   const axisFontSize = size >= 10 ? 9.5 : 10.5;
+  const edgeStrokeWidth = Math.max(3.5, Math.min(6, cellSize * 0.1));
 
   return (
     <svg
       viewBox={`0 0 ${totalViewBox} ${totalViewBox}`}
       className="h-auto w-full max-w-[540px] select-none"
       role="img"
-      aria-label={`${size}x${size} AI Maze Evolution grid`}
+      aria-label={`${size}×${size} AI Maze Evolution 미로 격자`}
       onMouseLeave={() => onHoverCell(null)}
     >
       <defs>
@@ -105,7 +140,7 @@ export function MazeRenderer({
         </pattern>
       </defs>
 
-      {/* Column axis indices */}
+      {/* 열 인덱스 */}
       {Array.from({ length: size }, (_, col) => (
         <text
           key={`col-${col}`}
@@ -120,7 +155,7 @@ export function MazeRenderer({
         </text>
       ))}
 
-      {/* Row axis indices */}
+      {/* 행 인덱스 */}
       {Array.from({ length: size }, (_, row) => (
         <text
           key={`row-${row}`}
@@ -136,36 +171,37 @@ export function MazeRenderer({
         </text>
       ))}
 
-      {/* Outer maze frame */}
+      {/* 외곽 테두리 */}
       <rect
         x={AXIS_MARGIN - 1}
         y={AXIS_MARGIN - 1}
         width={VIEWPORT_GRID_SIZE + 2}
         height={VIEWPORT_GRID_SIZE + 2}
         fill="#0b1220"
-        stroke="#2c3e5a"
-        strokeWidth={1.5}
+        stroke="#475569"
+        strokeWidth={2}
         rx={3}
       />
 
-      {/* Grid cells */}
+      {/* 격자 칸 */}
       {grid.map((rowArr, r) =>
         rowArr.map((cell, c) => {
           const x = AXIS_MARGIN + c * cellSize;
           const y = AXIS_MARGIN + r * cellSize;
-          const isWall = cell === 1;
+          const isCellWall = !isEdgeWallMode && cell === 1;
           const isStart = r === start[0] && c === start[1];
           const isGoal = r === goal[0] && c === goal[1];
           const isHovered = hoveredCell?.[0] === r && hoveredCell?.[1] === c;
           const changedFromPrev =
+            !isEdgeWallMode &&
             prevGrid !== null &&
             prevGrid.length === size &&
             prevGrid[r]?.[c] !== undefined &&
             prevGrid[r][c] !== cell;
 
-          let fill = isWall ? "#1e2c42" : "#0e1726";
+          let fill = isCellWall ? "#1e2c42" : "#0e1726";
           if (
-            !isWall &&
+            !isCellWall &&
             activeMatrix &&
             activeMatrix.length === size &&
             activeMatrix[r]?.[c] !== undefined
@@ -186,11 +222,11 @@ export function MazeRenderer({
                 width={cellSize}
                 height={cellSize}
                 fill={fill}
-                stroke={isHovered ? "#94a3b8" : "#1a263b"}
+                stroke={isHovered ? "#94a3b8" : "#182438"}
                 strokeWidth={isHovered ? 1.5 : 0.8}
               />
 
-              {isWall && (
+              {isCellWall && (
                 <>
                   <rect
                     x={x + 1.5}
@@ -224,7 +260,7 @@ export function MazeRenderer({
                 />
               )}
 
-              {!isWall &&
+              {!isCellWall &&
                 activeMatrix &&
                 activeMatrix.length === size &&
                 size <= 7 &&
@@ -305,16 +341,134 @@ export function MazeRenderer({
         }),
       )}
 
-      {/* Builder AI Edit Highlight */}
-      {edit &&
-        edit.pos[0] >= 0 &&
-        edit.pos[0] < size &&
-        edit.pos[1] >= 0 &&
-        edit.pos[1] < size && (
+      {/* 경계선 벽 모드: 이웃한 두 칸 사이의 경계선에 양방향 차단 벽 표시 */}
+      {isEdgeWallMode && (
+        <g className="pointer-events-none">
+          {/* 직전 라운드에서 제거/이동된 경계선 잔상 */}
+          {removedEdges.map((edge) => {
+            const seg = edgeToSegment(edge, cellSize, AXIS_MARGIN);
+            return (
+              <line
+                key={`removed-${edge.key}`}
+                x1={seg.x1}
+                y1={seg.y1}
+                x2={seg.x2}
+                y2={seg.y2}
+                stroke="#64748b"
+                strokeWidth={Math.max(2, edgeStrokeWidth * 0.55)}
+                strokeDasharray="4 4"
+                strokeOpacity={0.75}
+                strokeLinecap="round"
+              />
+            );
+          })}
+
+          {/* 현재 경계선 벽 */}
+          {edgeWalls.map((edge) => {
+            const seg = edgeToSegment(edge, cellSize, AXIS_MARGIN);
+            const isNewlyAdded = prevEdgeWalls !== null && !prevEdgeKeys.has(edge.key);
+            return (
+              <g key={`wall-${edge.key}`}>
+                <line
+                  x1={seg.x1}
+                  y1={seg.y1}
+                  x2={seg.x2}
+                  y2={seg.y2}
+                  stroke="#090d14"
+                  strokeWidth={edgeStrokeWidth + 2.4}
+                  strokeLinecap="round"
+                />
+                <line
+                  x1={seg.x1}
+                  y1={seg.y1}
+                  x2={seg.x2}
+                  y2={seg.y2}
+                  stroke={isNewlyAdded ? "#a78bfa" : "#cbd5e1"}
+                  strokeWidth={edgeStrokeWidth}
+                  strokeLinecap="round"
+                  className={isNewlyAdded ? "maze-edit-pulse" : undefined}
+                />
+              </g>
+            );
+          })}
+        </g>
+      )}
+
+      {/* 미로 제작 AI 수정 강조 (경계선 벽 edit 우선, 없으면 칸 edit) */}
+      {edit && targetEdge && (
+        <g className="pointer-events-none">
+          {fromEdge && (
+            (() => {
+              const fSeg = edgeToSegment(fromEdge, cellSize, AXIS_MARGIN);
+              return (
+                <line
+                  x1={fSeg.x1}
+                  y1={fSeg.y1}
+                  x2={fSeg.x2}
+                  y2={fSeg.y2}
+                  stroke="#f59e0b"
+                  strokeWidth={edgeStrokeWidth * 0.75}
+                  strokeDasharray="4 3"
+                  strokeLinecap="round"
+                />
+              );
+            })()
+          )}
+          {(() => {
+            const tSeg = edgeToSegment(targetEdge, cellSize, AXIS_MARGIN);
+            return (
+              <g>
+                <line
+                  x1={tSeg.x1}
+                  y1={tSeg.y1}
+                  x2={tSeg.x2}
+                  y2={tSeg.y2}
+                  stroke={editReverted ? "#f43f5e" : "#a78bfa"}
+                  strokeWidth={edgeStrokeWidth + 1.5}
+                  strokeDasharray={editReverted ? "5 3" : undefined}
+                  strokeLinecap="round"
+                  className="maze-edit-pulse"
+                />
+                <circle
+                  cx={tSeg.midX}
+                  cy={tSeg.midY}
+                  r={4.2}
+                  fill={editReverted ? "#f43f5e" : "#a78bfa"}
+                  stroke="#090d14"
+                  strokeWidth={1.2}
+                />
+              </g>
+            );
+          })()}
+        </g>
+      )}
+
+      {edit && !targetEdge && targetCell &&
+        targetCell[0] >= 0 &&
+        targetCell[0] < size &&
+        targetCell[1] >= 0 &&
+        targetCell[1] < size && (
           <g className="pointer-events-none">
+            {fromCell &&
+              fromCell[0] >= 0 &&
+              fromCell[0] < size &&
+              fromCell[1] >= 0 &&
+              fromCell[1] < size && (
+                <rect
+                  x={AXIS_MARGIN + fromCell[1] * cellSize + 3}
+                  y={AXIS_MARGIN + fromCell[0] * cellSize + 3}
+                  width={cellSize - 6}
+                  height={cellSize - 6}
+                  fill="none"
+                  stroke="#f59e0b"
+                  strokeWidth={2}
+                  strokeDasharray="4 3"
+                  rx={2}
+                />
+              )}
             <rect
-              x={AXIS_MARGIN + edit.pos[1] * cellSize + 2.5}
-              y={AXIS_MARGIN + edit.pos[0] * cellSize + 2.5}
+              x={AXIS_MARGIN + targetCell[1] * cellSize + 2.5}
+              y={AXIS_MARGIN + targetCell[0] * cellSize + 2.5}
               width={cellSize - 5}
               height={cellSize - 5}
               fill="none"
@@ -325,29 +479,35 @@ export function MazeRenderer({
               className="maze-edit-pulse"
             />
             <rect
-              x={AXIS_MARGIN + edit.pos[1] * cellSize + 3}
-              y={AXIS_MARGIN + edit.pos[0] * cellSize + 3}
-              width={Math.min(cellSize - 6, 30)}
+              x={AXIS_MARGIN + targetCell[1] * cellSize + 3}
+              y={AXIS_MARGIN + targetCell[0] * cellSize + 3}
+              width={Math.min(cellSize - 6, 32)}
               height={13}
               rx={1.5}
               fill={editReverted ? "#881337" : "#4c1d95"}
             />
             <text
-              x={AXIS_MARGIN + edit.pos[1] * cellSize + 3 + Math.min(cellSize - 6, 30) / 2}
-              y={AXIS_MARGIN + edit.pos[0] * cellSize + 9.8}
+              x={AXIS_MARGIN + targetCell[1] * cellSize + 3 + Math.min(cellSize - 6, 32) / 2}
+              y={AXIS_MARGIN + targetCell[0] * cellSize + 9.8}
               textAnchor="middle"
               dominantBaseline="central"
               fill={editReverted ? "#fecdd3" : "#ede9fe"}
               fontSize={8}
               fontWeight={700}
-              fontFamily="JetBrains Mono, monospace"
+              fontFamily="JetBrains Mono, Noto Sans KR, monospace"
             >
-              {editReverted ? "REV" : edit.type === "add_wall" ? "+W" : "-W"}
+              {editReverted
+                ? "복구"
+                : edit.type === "move_wall"
+                  ? "이동"
+                  : edit.type === "add_wall"
+                    ? "+벽"
+                    : "-벽"}
             </text>
           </g>
         )}
 
-      {/* Single Q-Learning Solver Path & Token */}
+      {/* Q-Learning 탈출 AI 경로 및 에이전트 */}
       <AgentRenderer
         qPath={qPath}
         stepIndex={stepIndex}
