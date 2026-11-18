@@ -106,10 +106,17 @@ def _distance_to_goal_edges(
 
 def _fixed_era_layout(size: int) -> tuple[tuple[int, int], tuple[int, int], set[Edge]]:
     """시대별 고정 시작점·도착점과 고정 초기 경계선 벽(10/25/50개) 배치를 반환한다."""
+    try:
+        from core.passage_maze import get_fixed_maze
+
+        fixed = get_fixed_maze(size)
+        return tuple(fixed.start), tuple(fixed.goal), set(fixed.walls)
+    except (ModuleNotFoundError, ImportError, KeyError):
+        pass
+
     start = (0, 0)
     goal = (size - 1, size - 1)
     target_walls = INITIAL_EDGE_WALL_COUNTS.get(size, max(4, (size * size) // 2))
-    # 시드 고정(크기 기반)으로 매 초기화마다 완전히 동일한 초기 배치를 보장한다.
     layout_rng = np.random.default_rng(1000 + size * 31)
     all_edges = _all_internal_edges(size)
     order = layout_rng.permutation(len(all_edges))
