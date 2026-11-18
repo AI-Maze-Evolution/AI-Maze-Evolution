@@ -46,17 +46,19 @@
 - `era`: `int` (현재 시대, **1부터**)
 - `size`: `int`, `start`: `[int, int]`, `goal`: `[int, int]`
 - `grid`: **다음 라운드에 사용될 현재 미로** (`list[list[int]]`)
+- `walls`: 경계선 벽 목록 (`[[[r1, c1], [r2, c2]], ...] | null`, 코어 연동 시 제공)
 - `finished`: `bool`
 - `last_result`: 마지막 `step()` 결과 (`RoundResult | null`)
 - `history`: 코어가 보관하는 `HistoryItem[]` (재접속 시 차트 즉시 복구)
 
 부가 API 메타데이터:
 - `mode`: `"DEMO" | "REAL"`, `engine_available`: `bool`, `speed`: `float`, `era_sizes`: `int[]`
-- `prev_grid`: 같은 시대 직전 미로(전후 비교용), `edit_history`, `era_transitions`, `error`
+- `prev_grid`, `prev_walls`: 같은 시대 직전 미로·벽(전후 비교용), `edit_history`, `era_transitions`, `error`
 
 ### `RoundResult` (`last_result` 및 `round_update.data.result`)
 - 단일 탈출 AI(Q-Learning): `reports.q`, `best_paths.q`, `q_values_max.q` (`shortest_path_len: int | null`)
-- 제작 AI(SARSA / Rule): `builder_mode`, `builder_state`, `builder_action`, `builder_action_name` (`"block_hot" | "block_path" | "random_wall" | "remove_wall" | null`), `builder_reward`, `builder_q_table` (`3×3×4` 또는 `rule` 모드 시 `null`)
+- 제작 AI(SARSA / Rule): `builder_mode`, `builder_state`, `builder_action`, `builder_action_name` (`"block_hot" | "block_path" | "move_to_path" | "move_to_hot" | null`), `builder_reward`, `builder_q_table` (`3×3×4` 또는 `rule` 모드 시 `null`)
+- 미로 수정(`edit`): `{"type": "add_wall" | "remove_wall" | "move_wall", "pos": ..., "from"?: ...} | null` (`move_wall`일 때 `from` 포함)
 - 시대 전환: `era_changed`, `next_size`, `finished`
 
 > **주의 (미로 격자 구분)**: 프론트엔드는 `best_paths.q`, `q_values_max.q`, `reports.q.visit_counts`, `edit`를 반드시 `last_result.grid` 위에 겹쳐 렌더링하며, `SimulationState.grid`는 다음 라운드용 현재 미로로 구분해 사용한다.

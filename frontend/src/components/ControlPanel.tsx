@@ -1,18 +1,29 @@
 import { useEffect, useState } from "react";
 import { Pause, Play, RotateCcw, SkipForward } from "lucide-react";
-import type { BuilderMode, SimulationStatus } from "../types/simulation";
+import type {
+  BuilderMode,
+  EngineMode,
+  RequestedEngineMode,
+  SimulationStatus,
+} from "../types/simulation";
 
 interface ControlPanelProps {
   status: SimulationStatus;
   speed: number;
   builderMode: BuilderMode;
+  engineMode: EngineMode;
+  engineAvailable: boolean;
   seed: number;
   busy: boolean;
   onStart: (seed?: number) => void;
   onPause: () => void;
   onResume: () => void;
   onStep: () => void;
-  onReset: (builderMode?: BuilderMode, seed?: number) => void;
+  onReset: (
+    builderMode?: BuilderMode,
+    seed?: number,
+    requestedEngineMode?: RequestedEngineMode,
+  ) => void;
   onSpeedChange: (speed: number) => void;
 }
 
@@ -20,6 +31,8 @@ export function ControlPanel({
   status,
   speed,
   builderMode,
+  engineMode,
+  engineAvailable,
   seed,
   busy,
   onStart,
@@ -109,9 +122,9 @@ export function ControlPanel({
           </button>
         </div>
 
-        {/* 실행 속도, 시드, 제작 AI 선택 */}
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="flex items-center gap-2.5">
+        {/* 실행 속도, 시드, 제작 AI, 엔진 모드 */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
             <label
               htmlFor="sim-speed-slider"
               className="whitespace-nowrap font-mono text-[11px] text-slate-400"
@@ -126,7 +139,7 @@ export function ControlPanel({
               step={0.5}
               value={speed}
               onChange={(e) => onSpeedChange(Number(e.target.value))}
-              className="lab-slider w-28 sm:w-36"
+              className="lab-slider w-24 sm:w-32"
               aria-label="시뮬레이션 실행 속도"
             />
             <span className="w-20 whitespace-nowrap text-right font-mono text-xs font-semibold text-sky-300 tabular-nums">
@@ -147,13 +160,13 @@ export function ControlPanel({
               value={seedInput}
               onChange={(e) => setSeedInput(e.target.value)}
               aria-label="난수 시드"
-              className="w-20 border border-lab-border bg-lab-bg px-2 py-1 font-mono text-[11px] text-slate-100 tabular-nums focus:border-sky-500 focus:outline-none"
+              className="w-16 border border-lab-border bg-lab-bg px-2 py-1 font-mono text-[11px] text-slate-100 tabular-nums focus:border-sky-500 focus:outline-none"
             />
           </div>
 
           <div className="flex items-center gap-1.5 border-l border-lab-border pl-3">
             <span className="whitespace-nowrap font-mono text-[11px] text-slate-500">
-              미로 제작 AI
+              제작 AI
             </span>
             <div className="inline-flex border border-lab-border bg-lab-bg font-mono text-[11px]">
               <button
@@ -161,7 +174,7 @@ export function ControlPanel({
                 title="SARSA 기반 미로 제작 AI로 초기화합니다"
                 disabled={busy}
                 onClick={() => onReset("sarsa", parsedSeed)}
-                className={`whitespace-nowrap px-2.5 py-1 transition-colors ${
+                className={`whitespace-nowrap px-2 py-1 transition-colors ${
                   builderMode === "sarsa"
                     ? "bg-violet-950/80 font-semibold text-violet-200"
                     : "text-slate-400 hover:text-slate-200"
@@ -174,13 +187,47 @@ export function ControlPanel({
                 title="규칙 기반 미로 제작 AI로 초기화합니다"
                 disabled={busy}
                 onClick={() => onReset("rule", parsedSeed)}
-                className={`whitespace-nowrap border-l border-lab-border px-2.5 py-1 transition-colors ${
+                className={`whitespace-nowrap border-l border-lab-border px-2 py-1 transition-colors ${
                   builderMode === "rule"
                     ? "bg-violet-950/80 font-semibold text-violet-200"
                     : "text-slate-400 hover:text-slate-200"
                 }`}
               >
-                규칙 기반 제작 AI
+                규칙 기반
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 border-l border-lab-border pl-3">
+            <span className="whitespace-nowrap font-mono text-[11px] text-slate-500">
+              엔진
+            </span>
+            <div className="inline-flex border border-lab-border bg-lab-bg font-mono text-[11px]">
+              <button
+                type="button"
+                title="실제 Python 강화학습 엔진(core/simulation.py)으로 실행합니다"
+                disabled={busy || !engineAvailable}
+                onClick={() => onReset(builderMode, parsedSeed, "real")}
+                className={`whitespace-nowrap px-2 py-1 transition-colors disabled:opacity-35 ${
+                  engineMode === "REAL"
+                    ? "bg-emerald-950/80 font-semibold text-emerald-200"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                실제 엔진
+              </button>
+              <button
+                type="button"
+                title="core/passage_maze.py 고정 배치 경계선 벽(10/25/50개) 데모 미리보기"
+                disabled={busy}
+                onClick={() => onReset(builderMode, parsedSeed, "demo")}
+                className={`whitespace-nowrap border-l border-lab-border px-2 py-1 transition-colors ${
+                  engineMode === "DEMO"
+                    ? "bg-amber-950/80 font-semibold text-amber-200"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                경계선 벽 데모
               </button>
             </div>
           </div>
