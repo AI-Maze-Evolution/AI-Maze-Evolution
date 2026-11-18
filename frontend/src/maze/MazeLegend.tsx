@@ -29,6 +29,10 @@ export function MazeLegend() {
         미로 제작 AI 수정
       </span>
       <span className="inline-flex items-center gap-1.5">
+        <span className="h-0.5 w-4 border-t-2 border-dashed border-amber-400" />
+        벽 이동(원래 위치)
+      </span>
+      <span className="inline-flex items-center gap-1.5">
         <span className="h-0.5 w-4 border-t-2 border-dashed border-rose-500" />
         되돌린 수정
       </span>
