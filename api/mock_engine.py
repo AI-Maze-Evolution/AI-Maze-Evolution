@@ -159,8 +159,8 @@ class MockSimulationEngine:
         """주어진 크기의 고정 시작점·도착점·초기 벽 배치를 적재한다."""
         start, goal, walls = _fixed_era_layout(size)
         self.size = size
-        self.start = start
-        self.goal = goal
+        self._start = start
+        self._goal = goal
         self.grid = np.zeros((size, size), dtype=int)
         self.walls: set[Edge] = set(walls)
 
@@ -195,8 +195,8 @@ class MockSimulationEngine:
             "round": self.round,
             "era": self.era,
             "size": self.size,
-            "start": [self.start[0], self.start[1]],
-            "goal": [self.goal[0], self.goal[1]],
+            "start": [self._start[0], self._start[1]],
+            "goal": [self._goal[0], self._goal[1]],
             "grid": self.grid.tolist(),
             "walls": _serialize_walls(self.walls),
             "finished": self.is_finished(),
@@ -309,7 +309,7 @@ class MockSimulationEngine:
             if is_move and source_wall is not None:
                 next_walls.discard(source_wall)
             next_walls.add(target_edge)
-            if _bfs_shortest_path_edges(self.size, self.start, self.goal, next_walls) is not None:
+            if _bfs_shortest_path_edges(self.size, self._start, self._goal, next_walls) is not None:
                 if is_move and source_wall is not None:
                     edit: dict[str, Any] = {
                         "type": "move_wall",
@@ -329,7 +329,7 @@ class MockSimulationEngine:
 
     def _build_q_heatmap(self, progress: float, walls: set[Edge]) -> list[list[float]]:
         """출구까지의 경계선 벽 기반 거리로 Q-Learning 최대 Q값 히트맵을 생성한다."""
-        dists = _distance_to_goal_edges(self.size, self.goal, walls)
+        dists = _distance_to_goal_edges(self.size, self._goal, walls)
         max_dist = max(1, int(np.max(dists)))
         q_map = np.zeros((self.size, self.size), dtype=float)
         for r in range(self.size):
@@ -356,11 +356,11 @@ class MockSimulationEngine:
         self._era_round += 1
         current_era = self.era
         current_size = self.size
-        start_list = [self.start[0], self.start[1]]
-        goal_list = [self.goal[0], self.goal[1]]
+        start_list = [self._start[0], self._start[1]]
+        goal_list = [self._goal[0], self._goal[1]]
         progress = self._era_round / ROUNDS_PER_ERA
 
-        base_shortest = _bfs_shortest_path_edges(current_size, self.start, self.goal, self.walls)
+        base_shortest = _bfs_shortest_path_edges(current_size, self._start, self._goal, self.walls)
         assert base_shortest is not None
         builder_state = self._compute_builder_state(current_size, len(base_shortest) - 1)
 
@@ -378,7 +378,7 @@ class MockSimulationEngine:
             )
 
         self.walls = round_walls
-        path_q = _bfs_shortest_path_edges(current_size, self.start, self.goal, round_walls)
+        path_q = _bfs_shortest_path_edges(current_size, self._start, self._goal, round_walls)
         assert path_q is not None
         shortest_len = len(path_q) - 1
 

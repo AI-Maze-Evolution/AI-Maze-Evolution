@@ -6,6 +6,7 @@ is_finished)만 호출한다.
 
 from __future__ import annotations
 
+import importlib
 from typing import Any
 
 import numpy as np
@@ -37,7 +38,7 @@ def to_json_safe(value: Any) -> Any:
 def _try_import_real_core() -> tuple[type[Any] | None, type[RuntimeError]]:
     """core.simulation의 Simulation 및 SimulationStateError를 임포트해 반환한다."""
     try:
-        import core.simulation as sim_module  # type: ignore[import-not-found]
+        sim_module = importlib.import_module("core.simulation")
 
         sim_cls = getattr(sim_module, "Simulation", None)
         err_cls = getattr(sim_module, "SimulationStateError", LocalSimulationStateError)

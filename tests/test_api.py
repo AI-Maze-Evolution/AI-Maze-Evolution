@@ -18,6 +18,7 @@ from api.engine_adapter import SimulationAdapter
 from api.main import create_app
 from api.manager import SimulationManager
 from api.mock_engine import INITIAL_EDGE_WALL_COUNTS, MockSimulationEngine
+from api.schemas import MazeEditModel, RoundResultModel
 
 REQUIRED_ROUND_RESULT_KEYS = {
     "round",
@@ -257,6 +258,20 @@ def test_concurrent_calls_are_serialized():
     asyncio.run(scenario())
 
 
+def test_requesting_real_mode_without_core_returns_400(monkeypatch):
+    """core.simulation 미설치 조건에서 real 모드 요청 시 400 오류를 반환하는지 확인한다."""
+    monkeypatch.setitem(sys.modules, "core.simulation", None)
+    app = create_app()
+    with TestClient(app) as client:
+        health = client.get("/api/health")
+        assert health.status_code == 200
+        assert health.json()["mode"] == "DEMO"
+
+        resp = client.post("/api/simulation/reset", json={"mode": "real"})
+        assert resp.status_code == 400
+        assert "core.simulation.Simulation" in resp.json()["detail"]
+
+
 def test_real_simulation_adapter_section15_and_edge_walls(monkeypatch):
     """실제 core.simulation.Simulation(15번 규격 + move_wall + walls) 직렬화가 동작하는지 확인한다."""
 
@@ -403,8 +418,18 @@ def test_real_simulation_adapter_section15_and_edge_walls(monkeypatch):
     assert result["start"] == [0, 2]
     assert result["goal"] == [4, 2]
     assert result["walls"] == [[[0, 0], [0, 1]], [[1, 1], [2, 1]]]
+    assert result["reports"]["q"]["shortest_path_len"] is None
     assert result["edit"]["type"] == "move_wall"
+    assert result["edit"]["from"] == [[0, 0], [0, 1]]
+    assert result["edit"]["pos"] == [[1, 2], [2, 2]]
     assert result["builder_action_name"] == "move_to_path"
+    validated = RoundResultModel.model_validate(result).model_dump(by_alias=True)
+    assert validated["edit"]["type"] == "move_wall"
+    assert validated["edit"]["from"] == [[0, 0], [0, 1]]
+    cell_move_edit = MazeEditModel.model_validate(
+        {"type": "move_wall", "from": [1, 1], "pos": [1, 2]}
+    ).model_dump(by_alias=True)
+    assert cell_move_edit == {"type": "move_wall", "from": [1, 1], "pos": [1, 2]}
     assert adapter.is_finished() is True
     with pytest.raises(FakeSimulationStateError):
         adapter.step()
