@@ -350,3 +350,63 @@ def test_rule_builder_action_names_by_success_bin():
     builder = RuleBasedBuilder(_rng(1), path_fn=fake_path)
     builder.propose_edit(grid, start, goal, make_report(0.9, path_len=15))
     assert builder.last_action_name == "block_hot"
+
+
+# ----------------------------------------------------------------------
+# 실제 core.maze 통합 테스트 (가짜 path_fn 없이, core.maze가 없으면 건너뜀)
+# ----------------------------------------------------------------------
+@pytest.fixture
+def maze():
+    return pytest.importorskip("core.maze")
+
+
+def _real_report(maze, grid, rate, rng):
+    """실제 미로에서 shortest_path_len을 계산하고 visit_counts는 무작위로 만든 성적표."""
+    n = grid.shape[0]
+    return {
+        "algo": "q",
+        "success_rate": rate,
+        "shortest_path_len": maze.shortest_path_len(grid, (0, 0), (n - 1, n - 1)),
+        "visit_counts": rng.integers(0, 50, size=(n, n)),
+    }
+
+
+def test_integration_uses_core_maze_defaults(maze):
+    import agents.builder as builder_module
+
+    assert builder_module.EMPTY == maze.EMPTY
+    assert builder_module.WALL == maze.WALL
+    for builder_cls in (RuleBasedBuilder, SarsaBuilder):
+        builder = builder_cls(_rng(0))  # path_fn 기본값
+        assert builder._get_path_fn() is maze.shortest_path
+
+
+@pytest.mark.parametrize("size", [5, 7, 10])
+@pytest.mark.parametrize("builder_cls", [RuleBasedBuilder, SarsaBuilder])
+def test_integration_edits_are_valid_and_keep_maze_solvable(maze, size, builder_cls):
+    start, goal = (0, 0), (size - 1, size - 1)
+    edit_count = 0
+    for seed in range(10):
+        maze_rng = np.random.default_rng(config.SEED + config.SEED_OFFSET["maze"] + seed)
+        data_rng = np.random.default_rng(1000 + seed)
+        builder = builder_cls(_rng(seed))  # 실제 core.maze.shortest_path 사용
+        grid = maze.generate_maze(size, maze_rng)
+        report = _real_report(maze, grid, 0.9, data_rng)
+
+        for _ in range(15):
+            before = grid.copy()
+            edit = builder.propose_edit(grid, start, goal, report)
+            assert np.array_equal(grid, before)  # propose_edit는 원본 미로를 바꾸지 않는다
+            if edit is not None:
+                edit_count += 1
+                check_edit_format(edit, grid, size)
+                assert edit["pos"] not in (start, goal)
+                new_grid = maze.apply_edit(grid, edit)  # ValueError 없이 적용
+                assert maze.is_solvable(new_grid, start, goal)
+                assert new_grid[start] == EMPTY and new_grid[goal] == EMPTY
+                grid = new_grid
+            rate = float(data_rng.choice([0.1, 0.5, 0.9, data_rng.random()]))
+            next_report = _real_report(maze, grid, rate, data_rng)
+            builder.learn(report, next_report, edit_reverted=False)
+            report = next_report
+    assert edit_count > 0  # 모든 라운드가 수정 없음으로 끝나지 않았다
