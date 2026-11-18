@@ -10,7 +10,7 @@
 - 민규
 
 ### 공개하는 것 (변경 시 팀 합의)
-- RuleBasedBuilder, QBuilder: propose_edit, learn, last_state, last_action
+- RuleBasedBuilder, SarsaBuilder: propose_edit, learn, last_state, last_action
 
 ### 가져다 쓰는 것
 - core/maze.py: shortest_path, shortest_path_len, WALL, EMPTY
@@ -18,7 +18,7 @@
 
 ### 작업 순서
 1. RuleBasedBuilder 완성 (Simulation 1차 통합용)
-2. QBuilder로 확장
+2. SarsaBuilder로 확장
 
 ### 초기 설계안 (담당자가 내부에서 자유롭게 변경 가능)
 - 상태: (성공률 구간, 최단 경로 구간)
@@ -31,7 +31,7 @@
   - 3 = 무작위 벽 하나 제거
   - (예약) 4 = 많이 방문된 칸 근처에 함정 — ENABLE_TRAPS일 때만 후보에 추가
 - 보상:
-  - 이번 통합 성공률이 BUILDER_TARGET_LOW~HIGH 사이면 +1
+  - 이번 성공률이 BUILDER_TARGET_LOW~HIGH 사이면 +1
   - HIGH 초과면 0 (너무 쉬움)
   - LOW 미만이면 -0.5, 성공률 0이라 수정이 취소되면 -1
   - 최단 경로가 길어졌으면 +0.2 가산
@@ -55,7 +55,7 @@
 - 규민
 
 ### 공개하는 것 (변경 시 팀 합의)
-- QLearningAgent, SarsaAgent: select_action, update, decay_epsilon,
+- QLearningAgent: select_action, update, decay_epsilon,
   reset_for_size, greedy_path, q_table, epsilon, name
 - run_round(env, agent, n_episodes) → report
 
@@ -65,14 +65,12 @@
 - config.py: ALPHA, GAMMA, EPSILON_*, ROUND_EARLY_EPISODES, SEED
 
 ### 주의할 점
-- 두 AI의 차이는 update의 목표값 계산 한 곳뿐이어야 한다 (나머지 코드는 공유)
-- SARSA는 다음 행동을 먼저 고른 뒤 update하고, 그 행동을 실제로 실행한다
 - 미로가 수정되어도 Q-table은 유지한다. 시대가 바뀔 때만 reset_for_size
 - 성적표의 trap_rate는 지금 항상 0.0으로 채운다 (예약)
 - core/environment.py가 오기 전에는 벽 없는 간단한 가짜 환경으로 개발한다
 
 ### 테스트 (tests/test_solver.py)
-- 벽 없는 5×5에서 500판 학습 후 성공률 0.9 이상 (두 AI 모두)
+- 벽 없는 5×5에서 500판 학습 후 성공률 0.9 이상 (QLearningAgent)
 - update 후 q_table 값이 바뀐다
 - 학습된 상태에서 greedy_path가 출구에서 끝난다
 - 성적표에 interface.md 8번의 키가 모두 있다
