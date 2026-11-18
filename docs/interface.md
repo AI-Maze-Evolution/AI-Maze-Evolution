@@ -10,7 +10,7 @@
     maze_evolution/
     ├── AGENTS.md / CLAUDE.md
     ├── config.py                   공동
-    ├── main.py                     수암
+    ├── main.py — 수암 (API 구조에 맞춰 위치·역할 결정 예정)
     ├── docs/interface.md           공동
     ├── core/                       윤중
     │   ├── AGENTS.md
@@ -134,7 +134,7 @@ run_round(env, agent, n_episodes) → report
       "avg_steps": float,
       "avg_reward": float,
       "visit_counts": np.ndarray (size × size, int),
-      "shortest_path_len": int
+      "shortest_path_len": int | None (길이 없으면 None)
     }
 
 - early_success_rate는 미로 수정 직후 탈출 AI의 적응 속도 지표다
@@ -153,6 +153,18 @@ RuleBasedBuilder(rng), SarsaBuilder(rng) 공통:
   - RuleBasedBuilder는 학습하지 않고 보상만 계산해 돌려준다
   - SARSA: learn에서 다음 상태와 다음 행동을 먼저 정하고, 그 행동의 Q값으로 업데이트. 다음 propose_edit는 그 행동을 실행
 - 속성: builder.last_state, builder.last_action (로그용, 없으면 None)
+
+행동 번호와 이름 (builder_action → builder_action_name):
+
+| 번호 | 이름 | 의미 |
+|---|---|---|
+| 0 | block_hot | 방문이 가장 많은 칸에 벽 |
+| 1 | block_path | 최단 경로 위 칸에 벽 |
+| 2 | random_wall | 무작위 빈칸에 벽 |
+| 3 | remove_wall | 무작위 벽 제거 |
+
+- 이름 목록은 agents/builder.py의 ACTION_NAMES를 기준으로 하며, Simulation은 이 상수로 builder_action을 builder_action_name으로 변환한다
+
 - 상태는 미로 크기와 무관하게 설계한다 (시대가 바뀌어도 학습 유지)
 - 상태·행동 상세 설계는 담당자가 정한다 (agents/AGENTS.md 참고)
 
@@ -160,10 +172,10 @@ RuleBasedBuilder(rng), SarsaBuilder(rng) 공통:
 
 ## 10. 시뮬레이션 (core/simulation.py) — 윤중
 
-    Simulation(builder_mode="sarsa" | "rule")
+    Simulation(builder_mode="sarsa" | "rule", seed=None)
 
-- step_round() → round_result  (한 라운드 진행 후 결과 반환, UI가 반복 호출)
-- run_all() → None  (UI 없이 끝까지 실행, 로그만 기록)
+- step() → round_result  (한 라운드 진행 후 결과 반환, API가 반복 호출)
+- run_all() → None  (UI·API 없이 끝까지 실행하고 로그만 기록. 발표용 그래프·백업용)
 - is_finished() → bool  (마지막 시대가 끝나면 True)
 - 속성: sim.round, sim.era, sim.size, sim.grid
 
@@ -182,7 +194,7 @@ RuleBasedBuilder(rng), SarsaBuilder(rng) 공통:
 
 ## 11. round_result / 로그 형식
 
-- UI가 받는 값과 로그 한 줄의 형식은 같다
+- API가 받는 값과 로그 한 줄의 형식은 같다
 - 로그 파일: logs/run_YYYYMMDD_HHMMSS.jsonl (라운드마다 한 줄)
 
     {
@@ -306,6 +318,8 @@ API(FastAPI·WebSocket)는 이 섹션의 메서드와 타입만 사용한다. �
 | get_state() | 없음 | SimulationState | 모든 상태 | 그대로 |
 | is_finished() | 없음 | bool | 모든 상태 | 그대로 |
 
+run_all()은 API에서 사용하지 않는 헤드리스 실행용이다
+
 - start, pause, resume은 status만 바꾼다. 코어는 스스로 반복 실행하지 않는다
 - 반복 실행과 속도 조절은 API가 담당한다: status가 "running"인 동안 step()을 호출하고 결과를 전송한다
 - step()은 idle·paused 상태에서도 호출할 수 있다 (한 라운드씩 수동 진행)
@@ -345,6 +359,17 @@ API(FastAPI·WebSocket)는 이 섹션의 메서드와 타입만 사용한다. �
 | era_changed | bool | 이번 라운드 후 시대가 바뀌었는지 |
 | next_size | int \| null | era_changed가 true면 다음 시대 미로 크기 |
 | finished | bool | 시뮬레이션 종료 여부 |
+
+builder_action 번호와 builder_action_name 대응:
+
+| 번호 | 이름 | 의미 |
+|---|---|---|
+| 0 | block_hot | 방문이 가장 많은 칸에 벽 |
+| 1 | block_path | 최단 경로 위 칸에 벽 |
+| 2 | random_wall | 무작위 빈칸에 벽 |
+| 3 | remove_wall | 무작위 벽 제거 |
+
+- 이름 목록은 agents/builder.py의 ACTION_NAMES를 기준으로 하며, Simulation은 이 상수로 builder_action을 builder_action_name으로 변환한다
 
 Report (JSON):
 

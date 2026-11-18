@@ -7,7 +7,7 @@
 - maze.py: 미로 표현 상수, BFS(is_solvable, shortest_path, shortest_path_len), generate_maze, apply_edit
 - environment.py: MazeEnv (reset, step, set_grid)
 - evolution.py: should_advance_era, next_size
-- simulation.py: Simulation (step_round, run_all, is_finished), 로그 기록
+- simulation.py: Simulation (step, run_all, is_finished), 로그 기록
 
 ## 다른 파일에 공개하는 것 (변경 시 팀 합의)
 - interface.md 2, 4, 5, 6, 10, 11번 항목 전부
@@ -29,7 +29,7 @@
 - apply_edit는 원본 grid를 절대 바꾸지 않는다
 - Solver는 하나(QLearningAgent)만 실행한다
 - 함정(예약) 처리 코드는 지금 넣지 않는다. BFS만 TRAP을 막힌 칸으로 처리
-- ui/를 import하지 않는다
+- api/를 import하지 않는다
 
 ## 테스트
 - tests/test_maze.py
@@ -42,7 +42,7 @@
   - 출구 도착 시 done=True, info["result"]=="goal"
   - max_steps 도달 시 info["result"]=="timeout"
 - tests/test_simulation.py
-  - 가짜 Solver·Builder로 step_round 3번이 에러 없이 끝난다
+  - 가짜 Solver·Builder로 step 3번이 에러 없이 끝난다
   - round_result에 interface.md 11번의 키가 모두 있다
   - step·get_state 결과가 json.dumps 가능
   - 허용되지 않는 상태 전환 시 SimulationStateError

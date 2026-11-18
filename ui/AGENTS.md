@@ -14,12 +14,12 @@
 - main.py: Simulation을 만들고 Dashboard 실행. --headless 옵션이면 sim.run_all()만 실행
 
 ## 가져다 쓰는 것
-- core/simulation.py: Simulation (step_round, is_finished, round, era, size, grid)
+- core/simulation.py: Simulation (step, is_finished, round, era, size, grid)
 - config.py
 - 그 외 core/, agents/ 는 import하지 않는다
 
 ## 동작 방식
-- Dashboard가 sim.step_round()를 반복 호출하고 받은 round_result로 화면을 갱신한다
+- Dashboard가 sim.step()을 반복 호출하고 받은 round_result로 화면을 갱신한다
 - 일시정지 = 호출 중단, 배속 = 호출 간격 조절
 - round_result 형식은 interface.md 11번 기준
 

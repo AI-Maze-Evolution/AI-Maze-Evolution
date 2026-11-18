@@ -24,7 +24,7 @@
 
 - 공통 규칙: AGENTS.md
 - 모듈 간 약속: docs/interface.md
-- 폴더별 규칙: core/AGENTS.md, agents/AGENTS.md, ui/AGENTS.md
+- 폴더별 규칙: core/AGENTS.md, agents/AGENTS.md
 - 자기 담당 파일 밖은 수정하지 않는다
 - 커밋 전 pytest tests/ 실행
 
