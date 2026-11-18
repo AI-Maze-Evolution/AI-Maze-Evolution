@@ -77,3 +77,41 @@ def test_apply_edit_rejects_traps(edit_type):
     grid = np.full((3, 3), EMPTY, dtype=int)
     with pytest.raises(ValueError):
         apply_edit(grid, {"type": edit_type, "pos": (1, 1)})
+
+
+def test_apply_edit_moves_wall_on_copy():
+    """벽을 빈칸으로 이동하고 원본과 벽 개수를 보존하는지 검증한다."""
+    grid = np.zeros((4, 4), dtype=int)
+    grid[1, 1] = WALL
+    moved = apply_edit(grid, {"type": "move_wall", "from": [1, 1], "pos": [2, 2]})
+
+    assert grid[1, 1] == WALL and grid[2, 2] == EMPTY
+    assert moved[1, 1] == EMPTY and moved[2, 2] == WALL
+    assert np.count_nonzero(moved == WALL) == np.count_nonzero(grid == WALL)
+    assert not np.shares_memory(grid, moved)
+
+
+@pytest.mark.parametrize(
+    "source, target",
+    [
+        ((0, 0), (2, 2)), ((3, 3), (2, 2)),
+        ((1, 1), (0, 0)), ((1, 1), (3, 3)),
+        ((-1, 1), (2, 2)), ((1, 1), (4, 2)),
+        ((2, 1), (2, 2)), ((1, 1), (1, 2)), ((1, 1), (1, 1)),
+    ],
+)
+def test_apply_edit_rejects_invalid_wall_move(source, target):
+    """보호 좌표, 범위, 벽 출발 및 빈칸 도착 조건을 검증한다."""
+    grid = np.zeros((4, 4), dtype=int)
+    grid[1, 1] = grid[1, 2] = WALL
+    original = grid.copy()
+    with pytest.raises(ValueError):
+        apply_edit(grid, {"type": "move_wall", "from": source, "pos": target})
+    np.testing.assert_array_equal(grid, original)
+
+
+def test_apply_edit_requires_wall_source():
+    """이동할 벽 좌표가 빠진 요청을 거부하는지 검증한다."""
+    grid = np.zeros((4, 4), dtype=int)
+    with pytest.raises(ValueError):
+        apply_edit(grid, {"type": "move_wall", "pos": (2, 2)})
