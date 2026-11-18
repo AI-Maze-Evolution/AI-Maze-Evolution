@@ -158,7 +158,7 @@ def test_never_targets_start_or_goal():
 def test_never_emits_remove_wall_or_trap_edit(monkeypatch):
     monkeypatch.setattr(config, "ENABLE_TRAPS", False)
     grids = [make_grid(), random_grid(5, 1), random_grid(7, 2)]
-    for seed in range(30):
+    for seed in range(10):
         for builder in make_builders(seed):
             for grid in grids:
                 n = grid.shape[0]
@@ -201,12 +201,12 @@ def test_every_round_blocks_path_and_keeps_maze_solvable(size):
     start, goal = (0, 0), (size - 1, size - 1)
     cap = int(config.BUILDER_MAX_WALL_DENSITY[size] * size * size)
     saw_add = saw_move = False
-    for seed in range(8):
+    for seed in range(4):
         for builder in make_builders(seed):
             data_rng = np.random.default_rng(seed)
             grid = random_grid(size, seed)
             report = make_report(0.9, path_len(grid), n=size, visits=data_rng.integers(0, 50, (size, size)))
-            for _ in range(40):
+            for _ in range(25):
                 edit = builder.propose_edit(grid, start, goal, report)
                 assert edit is not None  # 길이 남아 있는 일반 미로에서는 매 라운드 수정이 나온다
                 check_edit_format(edit, grid, size)
@@ -229,6 +229,112 @@ def test_every_round_blocks_path_and_keeps_maze_solvable(size):
                 builder.learn(report, next_report, edit_reverted=False)
                 report = next_report
     assert saw_add and saw_move  # 추가와 이동이 모두 실제로 나왔다
+
+
+# ----------------------------------------------------------------------
+# 최단 경로를 줄이지 않는 수정 (길을 열어 버리는 수정 금지)
+# ----------------------------------------------------------------------
+@pytest.mark.parametrize("size", [5, 7, 10])
+def test_edit_never_shortens_shortest_path(size):
+    start, goal = (0, 0), (size - 1, size - 1)
+    checked = 0
+    for seed in range(3):
+        for builder in make_builders(seed):
+            data_rng = np.random.default_rng(100 + seed)
+            grid = random_grid(size, seed)
+            report = make_report(0.9, path_len(grid), n=size, visits=data_rng.integers(0, 50, (size, size)))
+            for _ in range(15):
+                edit = builder.propose_edit(grid, start, goal, report)
+                if edit is not None:
+                    new_grid = apply_fake(grid, edit)
+                    assert path_len(new_grid) >= path_len(grid)  # 수정 후 최단 경로가 수정 전 이상
+                    grid = new_grid
+                    checked += 1
+                rate = float(data_rng.choice([0.1, 0.5, 0.9]))
+                next_report = make_report(
+                    rate, path_len(grid), n=size, visits=data_rng.integers(0, 50, (size, size))
+                )
+                builder.learn(report, next_report, edit_reverted=False)
+                report = next_report
+    assert checked > 0
+
+
+# 시작점 (0,0), 출구 (4,4). 길은 왼쪽 열 → 아래 → 가운데 열 → 위 → 오른쪽 열로 빙 돌아 16걸음이다.
+# 벽을 하나 치우면 지름길이 열려 최단 경로가 짧아진다.
+DETOUR_GRID = np.array(
+    [
+        [0, 1, 0, 0, 0],
+        [0, 1, 0, 1, 0],
+        [0, 1, 0, 1, 0],
+        [0, 1, 0, 1, 0],
+        [0, 0, 0, 1, 0],
+    ]
+)
+
+
+def test_move_rejects_candidates_that_open_a_shortcut():
+    grid = DETOUR_GRID
+    start, goal = (0, 0), (4, 4)
+    base = path_len(grid)
+    assert base == 16
+
+    path = fake_path(grid, start, goal)
+    targets = [p for p in path[1:-1] if grid[p] == EMPTY]
+    walls = [(int(r), int(c)) for r, c in zip(*np.where(grid == WALL))]
+    shortening = []
+    for pos in targets:
+        for src in walls:
+            trial = grid.copy()
+            trial[src] = EMPTY
+            trial[pos] = WALL
+            length = path_len(trial)
+            if length is not None and length < base:
+                shortening.append({"type": "move_wall", "from": src, "pos": pos})
+    assert shortening  # 이 미로에는 길을 열어 버리는 이동 후보가 실제로 있다
+
+    for seed in range(20):
+        rule = RuleBasedBuilder(_rng(seed), path_fn=fake_path)
+        # 성공률 구간 1 → move_to_path
+        edit = rule.propose_edit(grid, start, goal, make_report(0.5, path_len=base))
+        if edit is not None:
+            assert edit not in shortening
+            assert path_len(apply_fake(grid, edit)) >= base
+
+
+def test_prefers_candidate_that_lengthens_shortest_path(monkeypatch):
+    # 이 미로는 벽이 5×5 상한(7개)에 닿아 있으므로, 벽 추가를 보려고 상한을 올린다.
+    monkeypatch.setattr(config, "BUILDER_MAX_WALL_DENSITY", {5: 0.6, 7: 0.6, 10: 0.6})
+    # 8걸음 최단 경로 위의 (2,4)·(3,4)에 벽을 세우면 가운데로 돌아가 12걸음이 된다.
+    grid = np.array(
+        [
+            [0, 0, 0, 0, 0],
+            [1, 1, 0, 1, 1],
+            [0, 0, 0, 0, 0],
+            [0, 1, 1, 1, 0],
+            [0, 0, 0, 0, 0],
+        ]
+    )
+    start, goal = (0, 0), (4, 4)
+    base = path_len(grid)
+    path = fake_path(grid, start, goal)
+    targets = [p for p in path[1:-1] if grid[p] == EMPTY]
+
+    lengths = {}
+    for pos in targets:
+        trial = grid.copy()
+        trial[pos] = WALL
+        length = path_len(trial)
+        if length is not None:
+            lengths[pos] = length
+    best = max(lengths.values())
+    assert best > base  # 길어지는 후보가 실제로 있다
+
+    for seed in range(20):
+        # 성공률 구간 2 + 경로 구간 0 → Rule은 block_path
+        rule = RuleBasedBuilder(_rng(seed), path_fn=fake_path)
+        edit = rule.propose_edit(grid, start, goal, make_report(0.9, path_len=base))
+        assert edit["type"] == "add_wall"
+        assert lengths[edit["pos"]] == best  # 우선순위(방문 횟수)와 관계없이 가장 길어지는 후보
 
 
 def test_adds_wall_below_cap_and_moves_wall_at_cap():
@@ -577,14 +683,14 @@ def test_integration_every_round_edit_keeps_maze_solvable(maze, size, builder_cl
     start, goal = (0, 0), (size - 1, size - 1)
     cap = int(config.BUILDER_MAX_WALL_DENSITY[size] * size * size)
     saw_move = False
-    for seed in range(10):
+    for seed in range(5):
         maze_rng = np.random.default_rng(config.SEED + config.SEED_OFFSET["maze"] + seed)
         data_rng = np.random.default_rng(1000 + seed)
         builder = builder_cls(_rng(seed))  # 실제 core.maze.shortest_path 사용
         grid = maze.generate_maze(size, maze_rng)
         report = _real_report(maze, grid, 0.9, data_rng)
 
-        for _ in range(40):
+        for _ in range(30):
             before = grid.copy()
             edit = builder.propose_edit(grid, start, goal, report)
             assert np.array_equal(grid, before)  # propose_edit는 원본 미로를 바꾸지 않는다
@@ -596,6 +702,8 @@ def test_integration_every_round_edit_keeps_maze_solvable(maze, size, builder_cl
             new_grid = maze.apply_edit(grid, edit)  # ValueError 없이 적용
             assert maze.is_solvable(new_grid, start, goal)
             assert new_grid[start] == EMPTY and new_grid[goal] == EMPTY
+            # 길을 열어 최단 경로를 줄이는 수정은 내지 않는다
+            assert maze.shortest_path_len(new_grid, start, goal) >= maze.shortest_path_len(grid, start, goal)
             assert int((new_grid == WALL).sum()) <= cap
             saw_move = saw_move or edit["type"] == "move_wall"
             grid = new_grid

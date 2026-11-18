@@ -11,6 +11,7 @@ RuleBasedBuilder, SarsaBuilder 두 종류가 있으며 공개 인터페이스는
 
 수정은 매 라운드 길을 막는 방향이다: 벽 추가(add_wall), 벽 수가 BUILDER_MAX_WALL_DENSITY
 상한에 닿으면 기존 벽 이동(move_wall). remove_wall은 내지 않는다.
+모든 수정은 최단 경로를 줄이지 않아야 하며, 후보 중 최단 경로가 가장 길어지는 것을 우선한다.
 """
 
 import numpy as np
@@ -40,6 +41,11 @@ N_ACTIONS = 4
 
 # 이웃 칸 (상하좌우). 이동할 벽을 고를 때 주변 방문 횟수를 센다.
 NEIGHBORS = ((-1, 0), (1, 0), (0, -1), (0, 1))
+
+# 한 행동에서 "가장 길어지는 후보"를 비교하는 후보 수. 후보마다 BFS를 돌리므로 시간을 제한한다.
+# 후보는 우선순위 순(목표 칸 → 벽)으로 평가한다. 유효한 후보를 찾은 뒤에는 앞의 이 개수까지만
+# 비교하고, 유효한 후보가 하나도 없으면 끝까지 평가한다 (유효한 수정이 있는데 None이 되지 않도록).
+MAX_CANDIDATES = 100
 
 # 상태 구간 개수 (성공률 3구간 × 최단 경로 3구간)
 N_SUCCESS_BINS = 3
@@ -149,7 +155,9 @@ class BaseBuilder:
             매 라운드 길을 막는 수정(벽 추가 또는 이동)을 내며, 벽 수가
             BUILDER_MAX_WALL_DENSITY 상한에 닿으면 추가 대신 이동을 낸다.
             시작점·출구는 절대 대상으로 고르지 않으며, 모든 수정은 출구까지
-            길이 남는 경우에만 제안한다. (remove_wall은 내지 않는다)
+            길이 남는 경우에만 제안하고, 최단 경로를 줄이는(길을 열어 버리는) 수정은 버린다.
+            같은 행동 안에서 후보가 여러 개면 최단 경로가 가장 길어지는 후보를 우선한다.
+            (remove_wall은 내지 않는다)
         """
         if report is None:
             self.last_state = None
@@ -237,27 +245,28 @@ class BaseBuilder:
         입력: action (int), grid, start, goal, report
         출력: edit dict 또는 None
         """
+        base_path = self._get_path_fn()(grid, start, goal)
+        if base_path is None:
+            return None  # 이미 길이 없는 미로는 수정하지 않는다
+        base_len = len(base_path) - 1  # 수정 전 최단 경로 길이 (걸음 수)
+
         if action in (ACTION_BLOCK_HOT, ACTION_MOVE_TO_HOT):
             # 목표 칸: 방문이 많은 빈칸
             targets = self._sort_by_visits(self._empty_cells(grid, start, goal), report)
         elif action in (ACTION_BLOCK_PATH, ACTION_MOVE_TO_PATH):
             # 목표 칸: 현재 최단 경로 위의 빈칸 (시작점·출구 제외)
-            path = self._get_path_fn()(grid, start, goal)
-            if path is None:
-                return None
-            cells = [tuple(p) for p in path if tuple(p) not in (start, goal)]
+            cells = [tuple(p) for p in base_path if tuple(p) not in (start, goal)]
             targets = self._sort_by_visits([p for p in cells if grid[p] == EMPTY], report)
         else:
             return None
 
         is_add_action = action in (ACTION_BLOCK_HOT, ACTION_BLOCK_PATH)
         if is_add_action and not self._at_wall_cap(grid):
-            for pos in targets:
-                if self._keeps_path(grid, pos, start, goal):
-                    return {"type": "add_wall", "pos": pos}
-            return None
-        # 이동 행동이거나, 추가 행동인데 벽 수가 상한에 닿았으면 같은 목표 칸으로 벽을 옮긴다.
-        return self._move_edit(grid, targets, start, goal, report)
+            candidates = ({"type": "add_wall", "pos": pos} for pos in targets)
+        else:
+            # 이동 행동이거나, 추가 행동인데 벽 수가 상한에 닿았으면 같은 목표 칸으로 벽을 옮긴다.
+            candidates = self._move_candidates(grid, targets, start, goal, report)
+        return self._best_edit(grid, candidates, start, goal, base_len)
 
     def _wall_cap(self, size):
         """크기별 벽 추가 상한(벽 개수)을 돌려준다: int(BUILDER_MAX_WALL_DENSITY[size] × n × n).
@@ -272,23 +281,53 @@ class BaseBuilder:
         """현재 벽 수가 추가 상한 이상이면 True."""
         return int((grid == WALL).sum()) >= self._wall_cap(grid.shape[0])
 
-    def _move_edit(self, grid, targets, start, goal, report):
-        """벽 하나를 목표 칸 중 한 곳으로 옮기는 edit를 만든다. 가능한 수정이 없으면 None.
+    def _move_candidates(self, grid, targets, start, goal, report):
+        """벽 이동 후보 {"type": "move_wall", "from", "pos"}를 우선순위 순으로 하나씩 만든다.
 
         입력: grid, targets (목표 빈칸 목록, 우선순위 순), start, goal, report
-        출력: {"type": "move_wall", "from": (행, 열), "pos": (행, 열)} 또는 None.
-            우선순위가 높은 목표 칸부터, 주변 방문 횟수가 적은 벽부터 짝지어
-            옮긴 뒤에도 출구까지 길이 남는 첫 조합을 고른다.
-            벽이 하나도 없으면 None이다.
+        출력: 제너레이터. 우선순위가 높은 목표 칸부터, 주변 방문 횟수가 적은 벽부터 짝짓는다.
+            벽이 하나도 없으면 후보가 없다.
         """
         sources = self._walls_by_isolation(grid, start, goal, report)
-        if not sources:
-            return None
         for pos in targets:
             for src in sources:
-                if self._keeps_path_after_move(grid, src, pos, start, goal):
-                    return {"type": "move_wall", "from": src, "pos": pos}
-        return None
+                yield {"type": "move_wall", "from": src, "pos": pos}
+
+    def _best_edit(self, grid, candidates, start, goal, base_len):
+        """후보 중 최단 경로를 줄이지 않는 수정 가운데 가장 길게 만드는 것을 고른다.
+
+        입력:
+            grid: 수정 전 미로
+            candidates: 우선순위 순의 edit 후보 (유효한 후보를 찾은 뒤에는 앞의 MAX_CANDIDATES개까지만 비교)
+            base_len: 수정 전 최단 경로 길이
+        출력: edit 또는 None.
+            각 후보를 복사본에 적용해 출구까지 길이 남는지, 최단 경로가 base_len보다
+            짧아지지 않는지 확인한다. 조건을 만족하는 후보 중 새 최단 경로가 가장 긴 것을
+            고르고, 길이가 같으면 우선순위가 높은(앞선) 후보를 고른다. 없으면 None.
+        """
+        path_fn = self._get_path_fn()
+        best, best_len = None, None
+        for count, edit in enumerate(candidates):
+            if best is not None and count >= MAX_CANDIDATES:
+                break  # 유효한 후보를 찾은 뒤에는 앞의 MAX_CANDIDATES개까지만 비교한다
+            path = path_fn(self._apply_trial(grid, edit), start, goal)
+            if path is None:
+                continue  # 길이 막힌다
+            new_len = len(path) - 1
+            if new_len < base_len:
+                continue  # 길을 열어 최단 경로가 짧아진다
+            if best is None or new_len > best_len:
+                best, best_len = edit, new_len
+        return best
+
+    @staticmethod
+    def _apply_trial(grid, edit):
+        """edit를 grid 복사본에 적용해 돌려준다 (원본은 바꾸지 않는다)."""
+        trial = grid.copy()
+        if edit["type"] == "move_wall":
+            trial[edit["from"]] = EMPTY
+        trial[edit["pos"]] = WALL
+        return trial
 
     def _walls_by_isolation(self, grid, start, goal, report):
         """시작점·출구가 아닌 벽을 상하좌우 이웃 칸의 visit_counts 합이 작은 순서로 돌려준다.
@@ -334,19 +373,6 @@ class BaseBuilder:
         order = self.rng.permutation(len(cells))
         shuffled = [cells[i] for i in order]
         return sorted(shuffled, key=lambda p: -int(visits[p]))
-
-    def _keeps_path(self, grid, pos, start, goal):
-        """pos에 벽을 놓아도 출구까지 길이 남는지 복사본으로 미리 확인한다."""
-        trial = grid.copy()
-        trial[pos] = WALL
-        return self._get_path_fn()(trial, start, goal) is not None
-
-    def _keeps_path_after_move(self, grid, src, pos, start, goal):
-        """src의 벽을 비우고 pos에 벽을 세워도 출구까지 길이 남는지 복사본으로 미리 확인한다."""
-        trial = grid.copy()
-        trial[src] = EMPTY
-        trial[pos] = WALL
-        return self._get_path_fn()(trial, start, goal) is not None
 
 
 class RuleBasedBuilder(BaseBuilder):
