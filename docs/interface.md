@@ -10,7 +10,7 @@
     maze_evolution/
     ├── AGENTS.md / CLAUDE.md
     ├── config.py                   공동
-    ├── main.py                     수암
+    ├── main.py — 수암 (API 구조에 맞춰 위치·역할 결정 예정)
     ├── docs/interface.md           공동
     ├── core/                       윤중
     │   ├── AGENTS.md
@@ -22,7 +22,9 @@
     │   ├── AGENTS.md
     │   ├── builder.py              민규
     │   └── solver.py               규민
-    ├── ui/                         수암
+    ├── api/                        수암 (FastAPI·WebSocket)
+    ├── frontend/                   수암 (React)
+    ├── ui/                         (사용 안 함 — api/, frontend/로 대체)
     │   ├── AGENTS.md
     │   ├── dashboard.py
     │   ├── maze_view.py
@@ -32,11 +34,11 @@
 
 ## 의존 방향 (거꾸로 import 금지)
 
-    ui/, main.py  →  core/simulation.py  →  agents/  →  core/maze.py, core/environment.py
+    frontend  →  api  →  core/simulation.py  →  agents/  →  core/maze.py, core/environment.py
 
-- agents/는 ui/를 import하지 않는다
-- core/는 ui/를 import하지 않는다
-- ui/는 core/simulation.py와 config.py만 import한다
+- agents/는 api/를 import하지 않는다
+- core/는 api/를 import하지 않는다
+- api/는 core/simulation.py와 config.py만 import한다
 
 ---
 
@@ -132,7 +134,7 @@ run_round(env, agent, n_episodes) → report
       "avg_steps": float,
       "avg_reward": float,
       "visit_counts": np.ndarray (size × size, int),
-      "shortest_path_len": int
+      "shortest_path_len": int | None (길이 없으면 None)
     }
 
 - early_success_rate는 미로 수정 직후 탈출 AI의 적응 속도 지표다
@@ -151,6 +153,18 @@ RuleBasedBuilder(rng), SarsaBuilder(rng) 공통:
   - RuleBasedBuilder는 학습하지 않고 보상만 계산해 돌려준다
   - SARSA: learn에서 다음 상태와 다음 행동을 먼저 정하고, 그 행동의 Q값으로 업데이트. 다음 propose_edit는 그 행동을 실행
 - 속성: builder.last_state, builder.last_action (로그용, 없으면 None)
+
+행동 번호와 이름 (builder_action → builder_action_name):
+
+| 번호 | 이름 | 의미 |
+|---|---|---|
+| 0 | block_hot | 방문이 가장 많은 칸에 벽 |
+| 1 | block_path | 최단 경로 위 칸에 벽 |
+| 2 | random_wall | 무작위 빈칸에 벽 |
+| 3 | remove_wall | 무작위 벽 제거 |
+
+- 이름 목록은 agents/builder.py의 ACTION_NAMES를 기준으로 하며, Simulation은 이 상수로 builder_action을 builder_action_name으로 변환한다
+
 - 상태는 미로 크기와 무관하게 설계한다 (시대가 바뀌어도 학습 유지)
 - 상태·행동 상세 설계는 담당자가 정한다 (agents/AGENTS.md 참고)
 
@@ -158,10 +172,10 @@ RuleBasedBuilder(rng), SarsaBuilder(rng) 공통:
 
 ## 10. 시뮬레이션 (core/simulation.py) — 윤중
 
-    Simulation(builder_mode="sarsa" | "rule")
+    Simulation(builder_mode="sarsa" | "rule", seed=None)
 
-- step_round() → round_result  (한 라운드 진행 후 결과 반환, UI가 반복 호출)
-- run_all() → None  (UI 없이 끝까지 실행, 로그만 기록)
+- step() → round_result  (한 라운드 진행 후 결과 반환, API가 반복 호출)
+- run_all() → None  (UI·API 없이 끝까지 실행하고 로그만 기록. 발표용 그래프·백업용)
 - is_finished() → bool  (마지막 시대가 끝나면 True)
 - 속성: sim.round, sim.era, sim.size, sim.grid
 
@@ -176,26 +190,33 @@ RuleBasedBuilder(rng), SarsaBuilder(rng) 공통:
 7. should_advance_era가 True면 next_size로 generate_maze,
    Solver는 reset_for_size, Builder는 그대로 유지
 
+외부(API)에서 사용하는 제어 메서드와 반환 타입은 15번을 따른다
+
 ## 11. round_result / 로그 형식
 
-- UI가 받는 값과 로그 한 줄의 형식은 같다
+- API가 받는 값과 로그 한 줄의 형식은 같다
 - 로그 파일: logs/run_YYYYMMDD_HHMMSS.jsonl (라운드마다 한 줄)
 
     {
       "round": int,
       "era": int,
       "size": int,
+      "start": [int, int],
+      "goal": [int, int],
       "grid": 2차원 리스트,
       "edit": edit 또는 null,
       "edit_reverted": bool,
       "reports": {"q": 성적표},
       "best_paths": {"q": [[행, 열], ...]},
       "q_values_max": {"q": 2차원 리스트},
+      "builder_mode": "sarsa" | "rule",
       "builder_state": 값 또는 null,
       "builder_action": 값 또는 null,
+      "builder_action_name": "block_hot" | "block_path" | "random_wall" | "remove_wall" | null,
       "builder_reward": float,
       "builder_q_table": 3×3×4 리스트 또는 null (SarsaBuilder일 때만),
       "era_changed": bool,
+      "next_size": int | null,
       "finished": bool
     }
 
@@ -261,3 +282,159 @@ RuleBasedBuilder(rng), SarsaBuilder(rng) 공통:
 3. 팀 채팅에 "인터페이스 변경: (항목)"으로 공지한다
 4. 각자 main을 자기 브랜치로 가져오고 pytest tests/ 를 실행한다
 - 인터페이스 변경은 가능한 한 1차 통합 시점에 몰아서 한다
+
+---
+
+## 15. 외부 제어 인터페이스 (core/simulation.py → api/) — 구현 윤중, 사용 수암
+
+API(FastAPI·WebSocket)는 이 섹션의 메서드와 타입만 사용한다. 코어 내부 구현은 담당 영역대로 유지한다.
+
+### 15-1. 생성
+
+    Simulation(builder_mode: str = "sarsa", seed: int | None = None)
+
+- builder_mode: "sarsa" | "rule"
+- seed: None이면 config.SEED 사용
+- 생성 직후 상태는 "idle", 1시대 미로가 만들어진 상태
+
+### 15-2. 상태값 (status)
+
+| 값 | 의미 |
+|---|---|
+| "idle" | 생성 또는 reset 직후, 아직 시작 전 |
+| "running" | 실행 중 (API가 step을 반복 호출하는 상태) |
+| "paused" | 일시정지 |
+| "finished" | 마지막 시대가 끝나 더 진행할 수 없음 |
+
+### 15-3. 제어 메서드
+
+| 메서드 | 인자 | 반환 | 허용 상태 | 실행 후 상태 |
+|---|---|---|---|---|
+| start() | 없음 | SimulationState | idle | running |
+| pause() | 없음 | SimulationState | running | paused |
+| resume() | 없음 | SimulationState | paused | running |
+| step() | 없음 | RoundResult | idle, running, paused | 그대로 (마지막 라운드면 finished) |
+| reset(builder_mode: str \| None = None, seed: int \| None = None) | None이면 기존 값 유지 | SimulationState | 모든 상태 | idle |
+| get_state() | 없음 | SimulationState | 모든 상태 | 그대로 |
+| is_finished() | 없음 | bool | 모든 상태 | 그대로 |
+
+run_all()은 API에서 사용하지 않는 헤드리스 실행용이다
+
+- start, pause, resume은 status만 바꾼다. 코어는 스스로 반복 실행하지 않는다
+- 반복 실행과 속도 조절은 API가 담당한다: status가 "running"인 동안 step()을 호출하고 결과를 전송한다
+- step()은 idle·paused 상태에서도 호출할 수 있다 (한 라운드씩 수동 진행)
+- reset()은 미로, 탈출 AI Q-table, 제작 AI Q-table, 기록을 모두 초기화하고 1시대부터 다시 시작한다
+- 허용되지 않는 상태에서 호출하면 SimulationStateError(RuntimeError 하위 클래스, core/simulation.py에 정의)를 발생시킨다
+  - 예: running에서 start(), finished에서 step()
+
+### 15-4. 반환 타입 공통 규칙
+
+- RoundResult와 SimulationState는 별도 변환 없이 json.dumps가 가능해야 한다
+- NumPy 배열·NumPy 숫자·튜플은 반환 전에 list, int, float로 변환한다
+- 좌표는 [행, 열] 리스트
+
+### 15-5. RoundResult (step() 반환)
+
+11번 round_result와 같은 구조이며, 각 키의 타입은 아래와 같다.
+
+| 키 | 타입 | 설명 |
+|---|---|---|
+| round | int | 라운드 번호 (1부터) |
+| era | int | 시대 번호 (1부터) |
+| size | int | 이번 라운드 미로 크기 |
+| start | [int, int] | 시작점 |
+| goal | [int, int] | 출구 |
+| grid | list[list[int]] | 이번 라운드에 사용된 미로 (수정 반영 후) |
+| edit | {"type": str, "pos": [int, int]} \| null | 제작 AI가 적용한 수정 |
+| edit_reverted | bool | 성공률 0으로 수정이 되돌려졌는지 |
+| reports | {"q": Report} | 탈출 AI 성적표 |
+| best_paths | {"q": list[[int, int]]} | 탈출 AI의 현재 최적 경로 |
+| q_values_max | {"q": list[list[float]]} | 칸별 최대 Q값 (히트맵용) |
+| builder_mode | "sarsa" \| "rule" | 제작 AI 종류 |
+| builder_state | [int, int] \| null | 제작 AI 상태 (성공률 구간, 최단 경로 구간) |
+| builder_action | int \| null | 제작 AI 행동 번호 (0~3) |
+| builder_action_name | str \| null | "block_hot", "block_path", "random_wall", "remove_wall" |
+| builder_reward | float | 제작 AI가 이번 라운드에 받은 보상 |
+| builder_q_table | list[list[list[float]]] \| null | 3×3×4, rule 모드면 null |
+| era_changed | bool | 이번 라운드 후 시대가 바뀌었는지 |
+| next_size | int \| null | era_changed가 true면 다음 시대 미로 크기 |
+| finished | bool | 시뮬레이션 종료 여부 |
+
+builder_action 번호와 builder_action_name 대응:
+
+| 번호 | 이름 | 의미 |
+|---|---|---|
+| 0 | block_hot | 방문이 가장 많은 칸에 벽 |
+| 1 | block_path | 최단 경로 위 칸에 벽 |
+| 2 | random_wall | 무작위 빈칸에 벽 |
+| 3 | remove_wall | 무작위 벽 제거 |
+
+- 이름 목록은 agents/builder.py의 ACTION_NAMES를 기준으로 하며, Simulation은 이 상수로 builder_action을 builder_action_name으로 변환한다
+
+Report (JSON):
+
+| 키 | 타입 |
+|---|---|
+| algo | "q" |
+| n_episodes | int |
+| success_rate | float (0~1) |
+| early_success_rate | float (0~1) |
+| trap_rate | float (0~1, 예약: 항상 0.0) |
+| avg_steps | float |
+| avg_reward | float |
+| visit_counts | list[list[int]] |
+| shortest_path_len | int \| null |
+
+### 15-6. SimulationState (get_state(), start(), pause(), resume(), reset() 반환)
+
+| 키 | 타입 | 설명 |
+|---|---|---|
+| status | "idle" \| "running" \| "paused" \| "finished" | 현재 상태 |
+| builder_mode | "sarsa" \| "rule" | 제작 AI 종류 |
+| seed | int | 사용 중인 시드 |
+| round | int | 완료된 라운드 수 (0부터) |
+| era | int | 현재 시대 |
+| size | int | 현재 미로 크기 |
+| start | [int, int] | 시작점 |
+| goal | [int, int] | 출구 |
+| grid | list[list[int]] | 다음 라운드에 사용될 현재 미로 |
+| finished | bool | 종료 여부 |
+| last_result | RoundResult \| null | 마지막 step() 결과 |
+| history | list[HistoryItem] | 라운드별 요약 (새로 접속한 화면의 그래프 복구용) |
+
+HistoryItem:
+
+| 키 | 타입 |
+|---|---|
+| round | int |
+| era | int |
+| size | int |
+| success_rate | float |
+| early_success_rate | float |
+| avg_reward | float |
+| avg_steps | float |
+| builder_reward | float |
+| builder_action_name | str \| null |
+| edit_type | str \| null |
+| edit_reverted | bool |
+| era_changed | bool |
+
+### 15-7. 요청 데이터와 제공 위치
+
+| 필요한 데이터 | 위치 |
+|---|---|
+| 현재 미로 크기·배열 | SimulationState.size, grid / RoundResult.size, grid |
+| 현재 시대·라운드 | SimulationState.era, round / RoundResult.era, round |
+| 탈출 AI(Q-Learning) 이동 경로 | RoundResult.best_paths["q"] |
+| 탈출 AI 성공률·평균 보상·평균 이동 횟수 | RoundResult.reports["q"] |
+| 제작 AI(SARSA) 보상·변경 결과 | RoundResult.builder_reward, edit, edit_reverted, builder_action_name, builder_q_table |
+| 시대 전환 여부 | RoundResult.era_changed, next_size |
+| 종료 여부 | RoundResult.finished / SimulationState.status, finished |
+
+- SARSA는 제작 AI이므로 미로 안의 이동 경로가 없다. 제작 AI의 결과는 미로 변경(edit)으로 표현한다
+
+### 15-8. API 사용 시 주의
+
+- Simulation은 스레드 안전하지 않다. 한 인스턴스에 대한 호출은 한 번에 하나씩 (asyncio.Lock 등 사용)
+- step()은 미로 크기에 따라 수십~수백 ms 걸릴 수 있으므로 이벤트 루프를 막지 않도록 별도 스레드에서 호출 (asyncio.to_thread 등)
+- 같은 seed와 builder_mode로 reset하면 같은 결과가 재현된다
