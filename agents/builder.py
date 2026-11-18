@@ -4,7 +4,7 @@ RuleBasedBuilder, SarsaBuilder 두 종류가 있으며 공개 인터페이스는
 
 - propose_edit(grid, start, goal, report) -> edit 또는 None
 - learn(prev_report, next_report, edit_reverted) -> float (보상)
-- 속성: last_state, last_action (로그용)
+- 속성: last_state, last_action, last_action_name (로그용)
 
 상태는 미로 크기와 무관하게 (성공률 구간, 최단 경로 구간)으로 정하므로
 시대가 바뀌어도 Q-table을 그대로 유지할 수 있다.
@@ -20,7 +20,15 @@ except ImportError:
     EMPTY = 0
     WALL = 1
 
-# 행동 번호
+# 행동 이름 (docs/interface.md 9번·15번). 인덱스가 행동 번호이다.
+#   0 = "block_hot"    방문이 가장 많은 칸에 벽
+#   1 = "block_path"   최단 경로 위 칸에 벽
+#   2 = "random_wall"  무작위 빈칸에 벽
+#   3 = "remove_wall"  무작위 벽 제거
+# Simulation은 이 상수로 builder_action(번호)을 builder_action_name(이름)으로 변환한다.
+ACTION_NAMES = ("block_hot", "block_path", "random_wall", "remove_wall")
+
+# 행동 번호 (ACTION_NAMES의 인덱스와 같다)
 ACTION_WALL_MOST_VISITED = 0  # 방문이 많은 빈칸에 벽
 ACTION_WALL_ON_PATH = 1  # 최단 경로 위의 칸에 벽
 ACTION_WALL_RANDOM = 2  # 무작위 빈칸에 벽
@@ -107,6 +115,16 @@ class BaseBuilder:
         self._path_fn = path_fn
         self.last_state = None  # 마지막 상태 (성공률 구간, 최단 경로 구간)
         self.last_action = None  # 마지막 행동 번호
+
+    @property
+    def last_action_name(self):
+        """마지막 행동의 이름을 돌려준다 (로그·API용).
+
+        출력: last_action이 None이면 None, 아니면 ACTION_NAMES[last_action]
+        """
+        if self.last_action is None:
+            return None
+        return ACTION_NAMES[self.last_action]
 
     # ------------------------------------------------------------------
     # 공개 인터페이스
