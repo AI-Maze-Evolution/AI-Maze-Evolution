@@ -1,26 +1,15 @@
-"""제작 AI와 두 탈출 AI의 학습 라운드를 실행하고 기록한다."""
+"""제작 AI와 탈출 AI의 학습 라운드를 실행하고 기록한다."""
 
 import json
 from datetime import datetime
 from pathlib import Path
-from types import SimpleNamespace
 
 import numpy as np
 
+import config
 from core.environment import MazeEnv
 from core.evolution import next_size, should_advance_era
 from core.maze import apply_edit, generate_maze, is_solvable
-
-try:
-    import config
-except ModuleNotFoundError as error:
-    if error.name != "config":
-        raise
-    config = SimpleNamespace(
-        SEED=42, SEED_OFFSET={"maze": 0, "q": 1, "sarsa": 2, "builder": 3},
-        ERA_SIZES=(5, 7, 10), MAX_STEPS_FACTOR=4, ROUND_EPISODES=50,
-        MAX_EDIT_RETRY=3, LOG_DIR="logs",
-    )
 
 
 def _rng(name):
@@ -29,28 +18,12 @@ def _rng(name):
 
 
 def _make_agents(builder_mode, size):
-    """제작 방식과 크기를 받아 Builder, 두 Solver, 라운드 함수를 반환한다."""
-    from agents.builder import QBuilder, RuleBasedBuilder
-    from agents.solver import QLearningAgent, SarsaAgent, run_round
+    """제작 방식과 크기를 받아 Builder, Q-Learning Solver와 실행 함수를 반환한다."""
+    from agents.builder import RuleBasedBuilder, SarsaBuilder
+    from agents.solver import QLearningAgent, run_round
 
-    builder_class = QBuilder if builder_mode == "q" else RuleBasedBuilder
-    return (
-        builder_class(_rng("builder")), QLearningAgent(size, _rng("q")),
-        SarsaAgent(size, _rng("sarsa")), run_round,
-    )
-
-
-def merge_reports(q_report, sarsa_report):
-    """두 Solver 성적표를 받아 성공률과 평균을 평균 내고 방문 수를 합산한다."""
-    keys = ("success_rate", "early_success_rate", "trap_rate", "avg_steps", "avg_reward")
-    merged = {key: (q_report[key] + sarsa_report[key]) / 2 for key in keys}
-    merged.update(
-        algo="merged",
-        n_episodes=q_report["n_episodes"] + sarsa_report["n_episodes"],
-        visit_counts=q_report["visit_counts"] + sarsa_report["visit_counts"],
-        shortest_path_len=q_report["shortest_path_len"],
-    )
-    return merged
+    builder_class = SarsaBuilder if builder_mode == "sarsa" else RuleBasedBuilder
+    return builder_class(_rng("builder")), QLearningAgent(size, _rng("q")), run_round
 
 
 def _numpy_to_json(value):
@@ -63,12 +36,13 @@ def _numpy_to_json(value):
 
 
 class Simulation:
-    """미로 크기별로 제작 AI와 두 탈출 AI를 함께 학습시킨다."""
+    """미로 크기별로 제작 AI와 탈출 AI를 함께 학습시킨다."""
 
-    def __init__(self, builder_mode="q"):
+    def __init__(self, builder_mode="sarsa"):
         """제작 방식으로 에이전트, 첫 미로와 로그 경로를 초기화한다."""
-        if builder_mode not in ("q", "rule"):
-            raise ValueError("제작 방식은 q 또는 rule이어야 합니다.")
+        if builder_mode not in ("sarsa", "rule"):
+            raise ValueError("제작 방식은 sarsa 또는 rule이어야 합니다.")
+        self._builder_mode = builder_mode
         self.round = 0
         self.era = 1
         self.size = config.ERA_SIZES[0]
@@ -77,7 +51,7 @@ class Simulation:
         self._finished = False
         self._maze_rng = _rng("maze")
         self.grid = generate_maze(self.size, self._maze_rng)
-        self._builder, self._q, self._sarsa, self._run_round = _make_agents(builder_mode, self.size)
+        self._builder, self._q, self._run_round = _make_agents(builder_mode, self.size)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self._log_path = Path(config.LOG_DIR) / f"run_{stamp}.jsonl"
 
@@ -106,17 +80,14 @@ class Simulation:
             raise RuntimeError("이미 마지막 시대가 끝났습니다.")
 
         edit, round_grid = self._propose_edit(self._make_env(self.grid))
-        env_q = self._make_env(round_grid)
-        env_sarsa = self._make_env(round_grid)
-        q_report = self._run_round(env_q, self._q, config.ROUND_EPISODES)
-        sarsa_report = self._run_round(env_sarsa, self._sarsa, config.ROUND_EPISODES)
-        merged = merge_reports(q_report, sarsa_report)
-        reverted = edit is not None and merged["success_rate"] == 0
+        env = self._make_env(round_grid)
+        report = self._run_round(env, self._q, config.ROUND_EPISODES)
+        reverted = edit is not None and report["success_rate"] == 0
         if not reverted:
             self.grid = round_grid
-        reward = self._builder.learn(self._previous_report, merged, reverted)
-        self._previous_report = merged
-        self._history.append(merged["success_rate"])
+        reward = self._builder.learn(self._previous_report, report, reverted)
+        self._previous_report = report
+        self._history.append(report["success_rate"])
         self.round += 1
 
         advance = should_advance_era(self._history, len(self._history))
@@ -125,17 +96,13 @@ class Simulation:
         result = {
             "round": self.round, "era": self.era, "size": self.size,
             "grid": round_grid, "edit": edit, "edit_reverted": reverted,
-            "reports": {"q": q_report, "sarsa": sarsa_report, "merged": merged},
-            "best_paths": {
-                "q": self._q.greedy_path(self._make_env(round_grid)),
-                "sarsa": self._sarsa.greedy_path(self._make_env(round_grid)),
-            },
-            "q_values_max": {
-                "q": self._q.q_table.max(axis=2), "sarsa": self._sarsa.q_table.max(axis=2),
-            },
+            "reports": {"q": report},
+            "best_paths": {"q": self._q.greedy_path(self._make_env(round_grid))},
+            "q_values_max": {"q": self._q.q_table.max(axis=2)},
             "builder_state": self._builder.last_state,
             "builder_action": self._builder.last_action,
             "builder_reward": reward,
+            "builder_q_table": self._builder.q_table if self._builder_mode == "sarsa" else None,
             "era_changed": following_size is not None, "finished": self._finished,
         }
         line = json.dumps(result, default=_numpy_to_json, ensure_ascii=False)
@@ -148,7 +115,6 @@ class Simulation:
             self.size = following_size
             self.grid = generate_maze(self.size, self._maze_rng)
             self._q.reset_for_size(self.size)
-            self._sarsa.reset_for_size(self.size)
             self._previous_report = None
             self._history.clear()
         return json.loads(line)
