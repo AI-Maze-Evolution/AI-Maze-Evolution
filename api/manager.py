@@ -53,6 +53,7 @@ class SimulationManager:
         self.adapter = SimulationAdapter(builder_mode="sarsa", seed=None, requested_mode=self.requested_mode)
         self.speed: float = 1.5
         self.prev_grid: list[list[int]] | None = None
+        self.prev_walls: Any = None
         self.edit_history: list[dict[str, Any]] = []
         self.error: str | None = None
 
@@ -107,6 +108,7 @@ class SimulationManager:
             start=list(core_state["start"]),
             goal=list(core_state["goal"]),
             grid=core_state["grid"],
+            walls=core_state.get("walls"),
             finished=bool(core_state["finished"]),
             last_result=last_result_model,
             history=history_models,
@@ -115,6 +117,7 @@ class SimulationManager:
             speed=self.speed,
             era_sizes=self.adapter.era_sizes,
             prev_grid=self.prev_grid,
+            prev_walls=self.prev_walls,
             edit_history=[EditHistoryEntryModel.model_validate(entry) for entry in edit_entries],
             era_transitions=_compute_era_transitions(raw_history),
             error=self.error,
@@ -135,7 +138,7 @@ class SimulationManager:
             {
                 "type": "state_snapshot",
                 "timestamp": _utc_now_iso(),
-                "data": state.model_dump(),
+                "data": state.model_dump(by_alias=True),
             }
         )
 
@@ -200,14 +203,16 @@ class SimulationManager:
         """단일 _core_lock 내부에서 코어 step()을 1회 실행하고 브로드캐스트한다."""
         before_state = await asyncio.to_thread(self.adapter.get_state)
         before_grid = before_state["grid"]
+        before_walls = before_state.get("walls")
         before_era = int(before_state["era"])
 
         raw_result = await asyncio.to_thread(self.adapter.step)
-        validated = RoundResultModel.model_validate(raw_result).model_dump()
+        validated = RoundResultModel.model_validate(raw_result).model_dump(by_alias=True)
         after_state = await asyncio.to_thread(self.adapter.get_state)
 
-        # 같은 시대 내 실행이면 직전 미로를 비교용으로 보관
+        # 같은 시대 내 실행이면 직전 미로(칸·경계선 벽)를 비교용으로 보관
         self.prev_grid = before_grid if before_era == validated["era"] else None
+        self.prev_walls = before_walls if before_era == validated["era"] else None
 
         report_q = validated["reports"]["q"]
         edit = validated["edit"]
@@ -257,12 +262,14 @@ class SimulationManager:
                     "status": response_state.status,
                     "result": validated,
                     "next_grid": response_state.grid,
+                    "next_walls": response_state.walls,
                     "next_era": response_state.era,
                     "next_size": response_state.size,
                     "next_start": response_state.start,
                     "next_goal": response_state.goal,
                     "finished": response_state.finished,
                     "prev_grid": self.prev_grid,
+                    "prev_walls": self.prev_walls,
                     "history_item": history_item,
                     "edit_record": edit_record,
                     "era_transitions": response_state.era_transitions,
@@ -327,6 +334,7 @@ class SimulationManager:
             if needs_reconfigure and core_state["status"] == "idle":
                 await asyncio.to_thread(self.adapter.reset, builder_mode, seed)
                 self.prev_grid = None
+                self.prev_walls = None
                 self.edit_history = []
 
             self.error = None
@@ -391,6 +399,7 @@ class SimulationManager:
                 next_core = await asyncio.to_thread(self.adapter.reset, builder_mode, seed)
 
             self.prev_grid = None
+            self.prev_walls = None
             self.edit_history = []
             self.error = None
             response = self._build_state_response(next_core)
@@ -399,7 +408,7 @@ class SimulationManager:
             {
                 "type": "state_snapshot",
                 "timestamp": _utc_now_iso(),
-                "data": response.model_dump(),
+                "data": response.model_dump(by_alias=True),
             }
         )
         return response

@@ -2,6 +2,7 @@ import {
   Area,
   CartesianGrid,
   ComposedChart,
+  Legend,
   ReferenceLine,
   ResponsiveContainer,
   Scatter,
@@ -9,54 +10,56 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { BuilderActionName, HistoryItem } from "../types/simulation";
+import { getBuilderActionLabel, type HistoryItem } from "../types/simulation";
 
 interface BuilderChartProps {
   history: HistoryItem[];
   eraTransitions: number[];
 }
 
-const ACTION_KEYS: BuilderActionName[] = [
-  "block_hot",
-  "block_path",
-  "random_wall",
-  "remove_wall",
-];
+const DEFAULT_ACTIONS = ["block_hot", "block_path", "move_to_path", "move_to_hot"];
 
 export function BuilderChart({ history, eraTransitions }: BuilderChartProps) {
   const data = history.map((pt) => ({
     round: pt.round,
     reward: Number(pt.builder_reward.toFixed(3)),
     revertedPoint: pt.edit_reverted ? Number(pt.builder_reward.toFixed(3)) : null,
-    action: pt.builder_action_name ?? "none",
+    action: getBuilderActionLabel(pt.builder_action_name),
   }));
 
-  const actionCounts = ACTION_KEYS.reduce<Record<BuilderActionName, number>>(
-    (acc, key) => {
-      acc[key] = history.filter((item) => item.builder_action_name === key).length;
-      return acc;
-    },
-    { block_hot: 0, block_path: 0, random_wall: 0, remove_wall: 0 },
+  const observedActions = Array.from(
+    new Set(
+      history
+        .map((item) => item.builder_action_name)
+        .filter((name): name is string => Boolean(name)),
+    ),
   );
+  const actionKeys = observedActions.length > 0 ? observedActions : DEFAULT_ACTIONS;
+
+  const actionCounts = actionKeys.reduce<Record<string, number>>((acc, key) => {
+    acc[key] = history.filter((item) => item.builder_action_name === key).length;
+    return acc;
+  }, {});
 
   return (
     <section className="flex flex-col border border-lab-border bg-lab-surface">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-lab-border px-3 py-2">
         <div>
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-200">
-            Builder AI Reward &amp; Action Distribution
+          <h3 className="text-xs font-semibold text-slate-200">
+            미로 제작 AI 보상 및 행동 분포
           </h3>
           <p className="text-[11px] text-slate-500">
-            SARSA / Rule reward trajectory (rose dots = reverted edit)
+            SARSA / 규칙 기반 제작 AI의 보상 변화와 행동 선택 기록
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5 font-mono text-[10px] tabular-nums">
-          {ACTION_KEYS.map((key) => (
+          {actionKeys.map((key) => (
             <span
               key={key}
-              className="border border-lab-border bg-lab-bg px-1.5 py-0.5 text-slate-300"
+              className="whitespace-nowrap border border-lab-border bg-lab-bg px-1.5 py-0.5 text-slate-300"
             >
-              <span className="text-violet-300">{key}</span>: {actionCounts[key]}
+              <span className="text-violet-300">{getBuilderActionLabel(key)}</span>:{" "}
+              {actionCounts[key]}회
             </span>
           ))}
         </div>
@@ -65,7 +68,7 @@ export function BuilderChart({ history, eraTransitions }: BuilderChartProps) {
       <div className="h-[220px] w-full p-2.5">
         {data.length === 0 ? (
           <div className="flex h-full items-center justify-center font-mono text-xs text-slate-500">
-            Awaiting round telemetry…
+            표시할 데이터가 없습니다.
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
@@ -93,10 +96,11 @@ export function BuilderChart({ history, eraTransitions }: BuilderChartProps) {
                   border: "1px solid #2c3e5a",
                   borderRadius: "3px",
                   fontSize: "11px",
-                  fontFamily: "JetBrains Mono",
+                  fontFamily: "JetBrains Mono, Noto Sans KR, sans-serif",
                 }}
-                labelFormatter={(label) => `Round ${label}`}
+                labelFormatter={(label) => `라운드 ${label}`}
               />
+              <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "4px" }} />
               <ReferenceLine y={0} stroke="#475569" />
               {eraTransitions.map((roundNum, idx) => (
                 <ReferenceLine
@@ -105,7 +109,7 @@ export function BuilderChart({ history, eraTransitions }: BuilderChartProps) {
                   stroke="#64748b"
                   strokeDasharray="3 3"
                   label={{
-                    value: `Era ${idx + 2}`,
+                    value: `시대 ${idx + 2}`,
                     position: "insideTopRight",
                     fill: "#94a3b8",
                     fontSize: 9,
@@ -115,7 +119,7 @@ export function BuilderChart({ history, eraTransitions }: BuilderChartProps) {
               <Area
                 type="monotone"
                 dataKey="reward"
-                name="Builder Reward"
+                name="미로 제작 AI 보상"
                 stroke="#a78bfa"
                 strokeWidth={2}
                 fill="url(#builderRewardFill)"
@@ -123,7 +127,7 @@ export function BuilderChart({ history, eraTransitions }: BuilderChartProps) {
               />
               <Scatter
                 dataKey="revertedPoint"
-                name="Reverted"
+                name="되돌린 수정"
                 fill="#f43f5e"
                 isAnimationActive={false}
               />

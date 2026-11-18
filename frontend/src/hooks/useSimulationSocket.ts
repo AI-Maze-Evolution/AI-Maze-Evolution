@@ -11,9 +11,9 @@ import type {
 
 const INITIAL_GRID_5X5 = [
   [0, 0, 0, 0, 0],
-  [0, 1, 0, 1, 0],
   [0, 0, 0, 0, 0],
-  [0, 1, 0, 1, 0],
+  [0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0],
   [0, 0, 0, 0, 0],
 ];
 
@@ -27,6 +27,7 @@ const EMPTY_STATE: SimulationState = {
   start: [0, 0],
   goal: [4, 4],
   grid: INITIAL_GRID_5X5,
+  walls: null,
   finished: false,
   last_result: null,
   history: [],
@@ -35,6 +36,7 @@ const EMPTY_STATE: SimulationState = {
   speed: 1.5,
   era_sizes: [5, 7, 10],
   prev_grid: null,
+  prev_walls: null,
   edit_history: [],
   era_transitions: [],
   error: null,
@@ -68,8 +70,10 @@ export function useSimulationSocket() {
           start: payload.next_start,
           goal: payload.next_goal,
           grid: payload.next_grid,
+          walls: payload.next_walls,
           finished: payload.finished,
           prev_grid: payload.prev_grid,
+          prev_walls: payload.prev_walls,
           last_result: payload.result,
           history: alreadyRecorded ? prev.history : [...prev.history, payload.history_item],
           edit_history: alreadyRecorded ? prev.edit_history : [...prev.edit_history, payload.edit_record],
@@ -137,7 +141,7 @@ export function useSimulationSocket() {
       const next = await fn();
       setState(next);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "API request failed");
+      setActionError(err instanceof Error ? err.message : "API 요청에 실패했습니다.");
     } finally {
       setBusy(false);
     }
@@ -165,7 +169,7 @@ export function useSimulationSocket() {
       const next = await simulationApi.setSpeed(speed);
       setState(next);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to update speed");
+      setActionError(err instanceof Error ? err.message : "실행 속도 변경에 실패했습니다.");
     }
   }, []);
 
