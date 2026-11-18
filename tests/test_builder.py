@@ -590,6 +590,9 @@ def test_integration_every_round_edit_keeps_maze_solvable(maze, size, builder_cl
             assert np.array_equal(grid, before)  # propose_edit는 원본 미로를 바꾸지 않는다
             assert edit is not None  # 매 라운드 길을 막는 수정이 나온다
             check_edit_format(edit, grid, size)
+            assert edit["pos"] not in (start, goal)  # 시작점·출구는 수정 대상이 아니다
+            if edit["type"] == "move_wall":
+                assert edit["from"] not in (start, goal)
             new_grid = maze.apply_edit(grid, edit)  # ValueError 없이 적용
             assert maze.is_solvable(new_grid, start, goal)
             assert new_grid[start] == EMPTY and new_grid[goal] == EMPTY
@@ -597,7 +600,8 @@ def test_integration_every_round_edit_keeps_maze_solvable(maze, size, builder_cl
             saw_move = saw_move or edit["type"] == "move_wall"
             grid = new_grid
 
-            rate = float(data_rng.choice([0.1, 0.5, 0.9]))
+            # 대표 성공률 3개와 무작위 성공률을 섞어 모든 상태 구간을 만든다
+            rate = float(data_rng.choice([0.1, 0.5, 0.9, data_rng.random()]))
             next_report = _real_report(maze, grid, rate, data_rng)
             builder.learn(report, next_report, edit_reverted=False)
             report = next_report
