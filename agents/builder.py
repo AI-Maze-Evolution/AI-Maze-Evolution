@@ -8,6 +8,9 @@ RuleBasedBuilder, SarsaBuilder 두 종류가 있으며 공개 인터페이스는
 
 상태는 미로 크기와 무관하게 (성공률 구간, 최단 경로 구간)으로 정하므로
 시대가 바뀌어도 Q-table을 그대로 유지할 수 있다.
+
+수정은 매 라운드 길을 막는 방향이다: 벽 추가(add_wall), 벽 수가 BUILDER_MAX_WALL_DENSITY
+상한에 닿으면 기존 벽 이동(move_wall). remove_wall은 내지 않는다.
 """
 
 import numpy as np
@@ -21,19 +24,22 @@ except ImportError:
     WALL = 1
 
 # 행동 이름 (docs/interface.md 9번·15번). 인덱스가 행동 번호이다.
-#   0 = "block_hot"    방문이 가장 많은 칸에 벽
-#   1 = "block_path"   최단 경로 위 칸에 벽
-#   2 = "random_wall"  무작위 빈칸에 벽
-#   3 = "remove_wall"  무작위 벽 제거
+#   0 = "block_hot"     방문이 가장 많은 칸에 벽 추가 (벽 수가 상한이면 같은 칸으로 벽 이동)
+#   1 = "block_path"    최단 경로 위 칸에 벽 추가 (벽 수가 상한이면 같은 칸으로 벽 이동)
+#   2 = "move_to_path"  기존 벽 하나를 최단 경로 위 칸으로 이동
+#   3 = "move_to_hot"   기존 벽 하나를 방문이 많은 칸으로 이동
 # Simulation은 이 상수로 builder_action(번호)을 builder_action_name(이름)으로 변환한다.
-ACTION_NAMES = ("block_hot", "block_path", "random_wall", "remove_wall")
+ACTION_NAMES = ("block_hot", "block_path", "move_to_path", "move_to_hot")
 
 # 행동 번호 (ACTION_NAMES의 인덱스와 같다)
-ACTION_WALL_MOST_VISITED = 0  # 방문이 많은 빈칸에 벽
-ACTION_WALL_ON_PATH = 1  # 최단 경로 위의 칸에 벽
-ACTION_WALL_RANDOM = 2  # 무작위 빈칸에 벽
-ACTION_REMOVE_WALL = 3  # 무작위 벽 하나 제거
+ACTION_BLOCK_HOT = 0  # 방문이 많은 칸에 벽 추가
+ACTION_BLOCK_PATH = 1  # 최단 경로 위 칸에 벽 추가
+ACTION_MOVE_TO_PATH = 2  # 기존 벽을 최단 경로 위 칸으로 이동
+ACTION_MOVE_TO_HOT = 3  # 기존 벽을 방문이 많은 칸으로 이동
 N_ACTIONS = 4
+
+# 이웃 칸 (상하좌우). 이동할 벽을 고를 때 주변 방문 횟수를 센다.
+NEIGHBORS = ((-1, 0), (1, 0), (0, -1), (0, 1))
 
 # 상태 구간 개수 (성공률 3구간 × 최단 경로 3구간)
 N_SUCCESS_BINS = 3
@@ -137,10 +143,13 @@ class BaseBuilder:
             start, goal: (행, 열) 튜플
             report: 직전 라운드의 성적표 (첫 라운드는 None)
         출력:
-            {"type": "add_wall" | "remove_wall", "pos": (행, 열)} 또는 None.
-            첫 라운드이거나 수정할 곳이 없으면 None.
-            시작점·출구는 절대 대상으로 고르지 않으며,
-            벽 추가는 출구까지 길이 남는 경우에만 제안한다.
+            {"type": "add_wall", "pos": (행, 열)} 또는
+            {"type": "move_wall", "from": (행, 열), "pos": (행, 열)} 또는 None.
+            첫 라운드이거나 어떤 행동으로도 유효한 수정이 없으면 None.
+            매 라운드 길을 막는 수정(벽 추가 또는 이동)을 내며, 벽 수가
+            BUILDER_MAX_WALL_DENSITY 상한에 닿으면 추가 대신 이동을 낸다.
+            시작점·출구는 절대 대상으로 고르지 않으며, 모든 수정은 출구까지
+            길이 남는 경우에만 제안한다. (remove_wall은 내지 않는다)
         """
         if report is None:
             self.last_state = None
@@ -228,29 +237,85 @@ class BaseBuilder:
         입력: action (int), grid, start, goal, report
         출력: edit dict 또는 None
         """
-        if action == ACTION_REMOVE_WALL:
-            return self._remove_wall_edit(grid, start, goal)
-
-        if action == ACTION_WALL_MOST_VISITED:
-            cells = self._empty_cells(grid, start, goal)
-            cells = self._sort_by_visits(cells, report)
-        elif action == ACTION_WALL_ON_PATH:
+        if action in (ACTION_BLOCK_HOT, ACTION_MOVE_TO_HOT):
+            # 목표 칸: 방문이 많은 빈칸
+            targets = self._sort_by_visits(self._empty_cells(grid, start, goal), report)
+        elif action in (ACTION_BLOCK_PATH, ACTION_MOVE_TO_PATH):
+            # 목표 칸: 현재 최단 경로 위의 빈칸 (시작점·출구 제외)
             path = self._get_path_fn()(grid, start, goal)
             if path is None:
                 return None
             cells = [tuple(p) for p in path if tuple(p) not in (start, goal)]
-            cells = [p for p in cells if grid[p] == EMPTY]
-            cells = self._sort_by_visits(cells, report)
-        elif action == ACTION_WALL_RANDOM:
-            cells = self._empty_cells(grid, start, goal)
-            cells = [cells[i] for i in self.rng.permutation(len(cells))]
+            targets = self._sort_by_visits([p for p in cells if grid[p] == EMPTY], report)
         else:
             return None
 
-        for pos in cells:
-            if self._keeps_path(grid, pos, start, goal):
-                return {"type": "add_wall", "pos": pos}
+        is_add_action = action in (ACTION_BLOCK_HOT, ACTION_BLOCK_PATH)
+        if is_add_action and not self._at_wall_cap(grid):
+            for pos in targets:
+                if self._keeps_path(grid, pos, start, goal):
+                    return {"type": "add_wall", "pos": pos}
+            return None
+        # 이동 행동이거나, 추가 행동인데 벽 수가 상한에 닿았으면 같은 목표 칸으로 벽을 옮긴다.
+        return self._move_edit(grid, targets, start, goal, report)
+
+    def _wall_cap(self, size):
+        """크기별 벽 추가 상한(벽 개수)을 돌려준다: int(BUILDER_MAX_WALL_DENSITY[size] × n × n).
+
+        config에 없는 크기는 설정된 최대 비율을 쓴다.
+        """
+        densities = config.BUILDER_MAX_WALL_DENSITY
+        density = densities.get(size, max(densities.values()))
+        return int(density * size * size)
+
+    def _at_wall_cap(self, grid):
+        """현재 벽 수가 추가 상한 이상이면 True."""
+        return int((grid == WALL).sum()) >= self._wall_cap(grid.shape[0])
+
+    def _move_edit(self, grid, targets, start, goal, report):
+        """벽 하나를 목표 칸 중 한 곳으로 옮기는 edit를 만든다. 가능한 수정이 없으면 None.
+
+        입력: grid, targets (목표 빈칸 목록, 우선순위 순), start, goal, report
+        출력: {"type": "move_wall", "from": (행, 열), "pos": (행, 열)} 또는 None.
+            우선순위가 높은 목표 칸부터, 주변 방문 횟수가 적은 벽부터 짝지어
+            옮긴 뒤에도 출구까지 길이 남는 첫 조합을 고른다.
+            벽이 하나도 없으면 None이다.
+        """
+        sources = self._walls_by_isolation(grid, start, goal, report)
+        if not sources:
+            return None
+        for pos in targets:
+            for src in sources:
+                if self._keeps_path_after_move(grid, src, pos, start, goal):
+                    return {"type": "move_wall", "from": src, "pos": pos}
         return None
+
+    def _walls_by_isolation(self, grid, start, goal, report):
+        """시작점·출구가 아닌 벽을 상하좌우 이웃 칸의 visit_counts 합이 작은 순서로 돌려준다.
+
+        합이 같은 벽은 무작위 순서로 섞는다.
+        """
+        rows, cols = np.where(grid == WALL)
+        walls = [
+            (int(r), int(c))
+            for r, c in zip(rows, cols)
+            if (int(r), int(c)) not in (start, goal)
+        ]
+        if not walls:
+            return []
+        visits = np.asarray(report["visit_counts"])
+        size = grid.shape[0]
+
+        def neighbor_visits(cell):
+            total = 0
+            for dr, dc in NEIGHBORS:
+                r, c = cell[0] + dr, cell[1] + dc
+                if 0 <= r < size and 0 <= c < size:
+                    total += int(visits[r, c])
+            return total
+
+        shuffled = [walls[i] for i in self.rng.permutation(len(walls))]
+        return sorted(shuffled, key=neighbor_visits)
 
     def _empty_cells(self, grid, start, goal):
         """시작점·출구를 뺀 EMPTY 칸 목록 [(행, 열), ...]을 돌려준다."""
@@ -260,19 +325,6 @@ class BaseBuilder:
             for r, c in zip(rows, cols)
             if (int(r), int(c)) not in (start, goal)
         ]
-
-    def _remove_wall_edit(self, grid, start, goal):
-        """무작위 WALL 칸 하나를 제거하는 edit를 돌려준다. 벽이 없으면 None."""
-        rows, cols = np.where(grid == WALL)
-        cells = [
-            (int(r), int(c))
-            for r, c in zip(rows, cols)
-            if (int(r), int(c)) not in (start, goal)
-        ]
-        if not cells:
-            return None
-        pos = cells[int(self.rng.integers(len(cells)))]
-        return {"type": "remove_wall", "pos": pos}
 
     def _sort_by_visits(self, cells, report):
         """칸을 visit_counts가 큰 순서로 정렬한다. 같은 값은 무작위 순서로 섞는다."""
@@ -289,25 +341,34 @@ class BaseBuilder:
         trial[pos] = WALL
         return self._get_path_fn()(trial, start, goal) is not None
 
+    def _keeps_path_after_move(self, grid, src, pos, start, goal):
+        """src의 벽을 비우고 pos에 벽을 세워도 출구까지 길이 남는지 복사본으로 미리 확인한다."""
+        trial = grid.copy()
+        trial[src] = EMPTY
+        trial[pos] = WALL
+        return self._get_path_fn()(trial, start, goal) is not None
+
 
 class RuleBasedBuilder(BaseBuilder):
     """고정 규칙으로 행동을 고르는 Builder. 학습하지 않고 보상만 계산한다."""
 
     def _action_order(self, state):
-        """성공률 구간별 고정 행동 하나를 돌려준다.
+        """성공률 구간별 기본 행동을 먼저, 나머지 행동을 번호 순서로 돌려준다.
 
         입력: state (성공률 구간, 최단 경로 구간)
-        출력: 행동 번호 리스트 (원소 1개)
-            성공률 구간 2: 최단 경로 구간 0이면 행동 1, 아니면 행동 0
-            성공률 구간 1: 행동 2
-            성공률 구간 0: 행동 3
+        출력: 행동 번호 리스트 (4개 모두). 기본 행동으로 유효한 수정이 없을 때만 다음 행동을 시도한다.
+            성공률 구간 2 (너무 쉬움): 최단 경로 구간 0이면 행동 1, 아니면 행동 0
+            성공률 구간 1 (적당): 행동 2
+            성공률 구간 0 (너무 어려움): 행동 3 (덜 치명적인 방문 많은 칸으로 옮김)
         """
         s_bin, p_bin = state
         if s_bin == 2:
-            return [ACTION_WALL_ON_PATH if p_bin == 0 else ACTION_WALL_MOST_VISITED]
-        if s_bin == 1:
-            return [ACTION_WALL_RANDOM]
-        return [ACTION_REMOVE_WALL]
+            first = ACTION_BLOCK_PATH if p_bin == 0 else ACTION_BLOCK_HOT
+        elif s_bin == 1:
+            first = ACTION_MOVE_TO_PATH
+        else:
+            first = ACTION_MOVE_TO_HOT
+        return [first] + [a for a in range(N_ACTIONS) if a != first]
 
 
 class SarsaBuilder(BaseBuilder):
