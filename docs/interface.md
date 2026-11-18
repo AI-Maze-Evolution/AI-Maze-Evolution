@@ -168,6 +168,7 @@ RuleBasedBuilder(rng), SarsaBuilder(rng) 공통:
 
 - 이름 목록은 agents/builder.py의 ACTION_NAMES를 기준으로 하며, Simulation은 이 상수로 builder_action을 builder_action_name으로 변환한다
 - 제작 AI는 매 라운드 길을 막는 수정을 낸다. 벽 수가 BUILDER_MAX_WALL_DENSITY 상한에 닿으면 추가 행동(0, 1)은 같은 목표 칸으로의 이동(move_wall)으로 대체한다. 이동할 벽은 주변 방문 횟수가 가장 적은 벽을 고른다
+- 제작 AI의 모든 수정(추가·이동)은 적용 후 최단 경로 길이가 수정 전보다 짧아지면 내지 않는다. 같은 행동 안에서 후보가 여럿이면 최단 경로가 가장 길어지는 후보를 우선한다
 - remove_wall은 이번 변경에서 제작 AI가 쓰지 않지만 apply_edit의 지원은 유지한다
 
 - 상태는 미로 크기와 무관하게 설계한다 (시대가 바뀌어도 학습 유지)
