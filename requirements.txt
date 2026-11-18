@@ -1,0 +1,3 @@
+numpy
+pytest
+# UI 라이브러리는 수암이 확정 후 추가 (pygame 또는 matplotlib)
