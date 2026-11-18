@@ -10,7 +10,7 @@
 | 1 | 미로 제작 AI (SARSA) | agents/builder.py | 민규 |
 | 2 | 미로 탈출 AI (Q-Learning) | agents/solver.py | 규민 |
 | 3 | 환경 및 학습 통합 | core/maze.py, core/environment.py, core/evolution.py, core/simulation.py | 윤중 |
-| 4 | UI 및 시각화 | ui/dashboard.py, ui/maze_view.py, ui/charts.py, main.py | 수암 |
+| 4 | 프론트엔드 및 API | frontend/, api/ | 수암 |
 
 ## 시작하기
 

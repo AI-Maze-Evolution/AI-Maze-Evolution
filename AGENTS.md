@@ -9,7 +9,7 @@
 
 ## 기술 스택
 - Python 3.12, NumPy
-- UI: ui/ 폴더와 main.py에서만 사용. 라이브러리는 UI 담당이 확정 (pygame 또는 matplotlib)
+- 프론트엔드: React (frontend/), API: FastAPI·WebSocket (api/) — 수암 담당. 빌드·의존성은 각 폴더에서 관리
 - 테스트: pytest
 - PyTorch 등 딥러닝 라이브러리 사용 금지, CPU에서 실행
 
@@ -19,7 +19,7 @@
 | 1 | 미로 제작 AI (SARSA) | agents/builder.py | 민규 | 높음 |
 | 2 | 미로 탈출 AI (Q-Learning) | agents/solver.py | 규민 | 중간 |
 | 3 | 환경 및 학습 통합 | core/maze.py, core/environment.py, core/evolution.py, core/simulation.py | 윤중 | 높음 |
-| 4 | UI 및 시각화 | ui/dashboard.py, ui/maze_view.py, ui/charts.py, main.py | 수암 | 중간 |
+| 4 | 프론트엔드 및 API | frontend/, api/ | 수암 | 중간 |
 
 공동 관리 파일: config.py, docs/interface.md, AGENTS.md (팀 합의 후에만 수정)
 
