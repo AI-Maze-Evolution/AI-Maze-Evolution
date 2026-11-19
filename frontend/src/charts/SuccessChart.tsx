@@ -25,22 +25,24 @@ export function SuccessChart({ history, eraTransitions }: SuccessChartProps) {
 
   return (
     <section className="flex flex-col border border-lab-border bg-lab-surface">
-      <div className="flex items-center justify-between border-b border-lab-border px-3 py-2">
+      <div className="flex items-center justify-between gap-2 border-b border-lab-border px-3 py-2">
         <div>
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-200">
-            Q-Learning Escape Success &amp; Early Adaptation
+          <h3 className="text-xs font-semibold text-slate-200">
+            Q-Learning 탈출 성공률 및 초기 적응률
           </h3>
           <p className="text-[11px] text-slate-500">
-            Full round success rate vs first-10-episode adaptation (%)
+            라운드 전체 성공률과 초기 10회 탈출 성공률 비교
           </p>
         </div>
-        <span className="font-mono text-[10px] text-emerald-400">BAND 30%–70%</span>
+        <span className="whitespace-nowrap font-mono text-[10px] text-emerald-400">
+          목표 구간 30%–70%
+        </span>
       </div>
 
       <div className="h-[220px] w-full p-2.5">
         {data.length === 0 ? (
           <div className="flex h-full items-center justify-center font-mono text-xs text-slate-500">
-            Awaiting round telemetry…
+            표시할 데이터가 없습니다.
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
@@ -63,10 +65,10 @@ export function SuccessChart({ history, eraTransitions }: SuccessChartProps) {
                   border: "1px solid #2c3e5a",
                   borderRadius: "3px",
                   fontSize: "11px",
-                  fontFamily: "JetBrains Mono",
+                  fontFamily: "JetBrains Mono, Noto Sans KR, sans-serif",
                 }}
                 formatter={(value: number) => [`${value}%`, undefined]}
-                labelFormatter={(label) => `Round ${label}`}
+                labelFormatter={(label) => `라운드 ${label}`}
               />
               <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "4px" }} />
               <ReferenceLine y={70} stroke="#334155" strokeDasharray="4 4" />
@@ -78,7 +80,7 @@ export function SuccessChart({ history, eraTransitions }: SuccessChartProps) {
                   stroke="#64748b"
                   strokeDasharray="3 3"
                   label={{
-                    value: `Era ${idx + 2}`,
+                    value: `시대 ${idx + 2}`,
                     position: "insideTopRight",
                     fill: "#94a3b8",
                     fontSize: 9,
@@ -88,7 +90,7 @@ export function SuccessChart({ history, eraTransitions }: SuccessChartProps) {
               <Line
                 type="monotone"
                 dataKey="success"
-                name="Success Rate"
+                name="전체 탈출 성공률"
                 stroke="#38bdf8"
                 strokeWidth={2}
                 dot={false}
@@ -97,7 +99,7 @@ export function SuccessChart({ history, eraTransitions }: SuccessChartProps) {
               <Line
                 type="monotone"
                 dataKey="early"
-                name="Early Adaptation"
+                name="초기 10회 성공률"
                 stroke="#10b981"
                 strokeWidth={1.6}
                 strokeDasharray="4 3"
