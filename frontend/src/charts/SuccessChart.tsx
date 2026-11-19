@@ -3,6 +3,7 @@ import {
   Legend,
   Line,
   LineChart,
+  ReferenceArea,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -24,91 +25,119 @@ export function SuccessChart({ history, eraTransitions }: SuccessChartProps) {
   }));
 
   return (
-    <section className="flex flex-col border border-lab-border bg-lab-surface">
-      <div className="flex items-center justify-between gap-2 border-b border-lab-border px-3 py-2">
+    <section className="instrument-card flex flex-col overflow-hidden rounded-md shadow-md">
+      <div className="flex items-center justify-between gap-2 border-b border-[#1b273b] bg-[#090e18] px-3.5 py-2.5">
         <div>
-          <h3 className="text-xs font-semibold text-slate-200">
-            Q-Learning 탈출 성공률 및 초기 적응률
+          <h3 className="font-mono text-xs font-bold text-slate-100">
+            탈출 성공률 및 초기 적응률 추이
           </h3>
-          <p className="text-[11px] text-slate-500">
-            라운드 전체 성공률과 초기 10회 탈출 성공률 비교
+          <p className="text-[10.5px] text-slate-400">
+            Q-Learning 라운드 전체 성공률 vs 미로 수정 직후 10회 에피소드 성공률
           </p>
         </div>
-        <span className="whitespace-nowrap font-mono text-[10px] text-emerald-400">
-          목표 구간 30%–70%
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="rounded border border-emerald-600/50 bg-emerald-950/40 px-2 py-0.5 font-mono text-[10.5px] font-semibold text-emerald-300">
+            목표 구간 30%–70%
+          </span>
+        </div>
       </div>
 
-      <div className="h-[220px] w-full p-2.5">
+      <div className="h-[230px] w-full p-3">
         {data.length === 0 ? (
           <div className="flex h-full items-center justify-center font-mono text-xs text-slate-500">
-            표시할 데이터가 없습니다.
+            시뮬레이션을 시작하면 학습 수렴 곡선이 기록됩니다.
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={data} margin={{ top: 8, right: 12, left: -12, bottom: 0 }}>
-              <CartesianGrid stroke="#1a263b" strokeDasharray="3 3" />
+            <LineChart data={data} margin={{ top: 10, right: 14, left: -14, bottom: 2 }}>
+              <CartesianGrid stroke="#152136" strokeDasharray="3 3" />
               <XAxis
                 dataKey="round"
                 tick={{ fill: "#64748b", fontSize: 10, fontFamily: "JetBrains Mono" }}
-                stroke="#223047"
+                stroke="#1e2d45"
               />
               <YAxis
                 domain={[0, 100]}
                 tick={{ fill: "#64748b", fontSize: 10, fontFamily: "JetBrains Mono" }}
-                stroke="#223047"
+                stroke="#1e2d45"
                 unit="%"
               />
               <Tooltip
                 contentStyle={{
-                  backgroundColor: "#0b1220",
-                  border: "1px solid #2c3e5a",
-                  borderRadius: "3px",
+                  backgroundColor: "#070c16",
+                  border: "1px solid #223552",
+                  borderRadius: "6px",
                   fontSize: "11px",
-                  fontFamily: "JetBrains Mono, Noto Sans KR, sans-serif",
+                  fontFamily: "JetBrains Mono, Pretendard, sans-serif",
+                  boxShadow: "0 0 15px rgba(0,0,0,0.7)",
                 }}
                 formatter={(value: number) => [`${value}%`, undefined]}
                 labelFormatter={(label) => `라운드 ${label}`}
               />
-              <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "4px" }} />
-              <ReferenceLine y={70} stroke="#334155" strokeDasharray="4 4" />
-              <ReferenceLine y={30} stroke="#334155" strokeDasharray="4 4" />
+              <Legend
+                wrapperStyle={{
+                  fontSize: "11px",
+                  fontFamily: "Pretendard, sans-serif",
+                  paddingTop: "6px",
+                }}
+              />
+              {/* 목표 수렴 밴드 30%~70% */}
+              <ReferenceArea
+                y1={30}
+                y2={70}
+                fill="#10b981"
+                fillOpacity={0.04}
+                stroke="#10b981"
+                strokeOpacity={0.15}
+                strokeDasharray="2 2"
+              />
+              <ReferenceLine y={70} stroke="#10b981" strokeOpacity={0.3} strokeDasharray="3 3" />
+              <ReferenceLine y={30} stroke="#10b981" strokeOpacity={0.3} strokeDasharray="3 3" />
+
               {eraTransitions.map((roundNum, idx) => (
                 <ReferenceLine
                   key={`era-${roundNum}`}
                   x={roundNum}
-                  stroke="#64748b"
+                  stroke="#38bdf8"
                   strokeDasharray="3 3"
                   label={{
                     value: `시대 ${idx + 2}`,
                     position: "insideTopRight",
-                    fill: "#94a3b8",
-                    fontSize: 9,
+                    fill: "#38bdf8",
+                    fontSize: 10,
+                    fontFamily: "JetBrains Mono",
                   }}
                 />
               ))}
+
               <Line
                 type="monotone"
                 dataKey="success"
                 name="전체 탈출 성공률"
                 stroke="#38bdf8"
-                strokeWidth={2}
+                strokeWidth={2.2}
                 dot={false}
+                activeDot={{ r: 4, fill: "#38bdf8", stroke: "#070c16", strokeWidth: 2 }}
                 isAnimationActive={false}
               />
               <Line
                 type="monotone"
                 dataKey="early"
-                name="초기 10회 성공률"
+                name="초기 10회 적응률"
                 stroke="#10b981"
-                strokeWidth={1.6}
+                strokeWidth={1.8}
                 strokeDasharray="4 3"
                 dot={false}
+                activeDot={{ r: 4, fill: "#10b981", stroke: "#070c16", strokeWidth: 2 }}
                 isAnimationActive={false}
               />
             </LineChart>
           </ResponsiveContainer>
         )}
+      </div>
+
+      <div className="border-t border-[#162236] bg-[#070b14] px-3.5 py-2 font-mono text-[10.5px] text-slate-400">
+        <span className="font-bold text-cyan-300">💡 경쟁 지표 해석:</span> Q-Learning 탈출 성공률이 녹색 목표 밴드(30%~70%)에 머물수록 SARSA가 탈출을 효과적으로 방해하여 높은 보상을 획득합니다. 70% 초과 시 Q-Learning 우세, 30% 미만 시 미로 과도 난이도를 뜻합니다.
       </div>
     </section>
   );
