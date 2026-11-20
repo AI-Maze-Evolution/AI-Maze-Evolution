@@ -26,20 +26,20 @@ interface MazeRendererProps {
   onHoverCell: (coord: Coord | null) => void;
 }
 
-const VIEWPORT_GRID_SIZE = 440;
-const AXIS_MARGIN = 26;
+const VIEWPORT_GRID_SIZE = 560;
+const AXIS_MARGIN = 28;
 
 function interpolateHeatmapColor(norm: number, mode: OverlayMode): string {
   const t = Math.max(0, Math.min(1, norm));
   if (mode === "q_heatmap") {
-    const r = Math.round(14 + t * 24);
-    const g = Math.round(28 + t * 135);
-    const b = Math.round(52 + t * 168);
+    const r = Math.round(12 + t * 38);
+    const g = Math.round(24 + t * 155);
+    const b = Math.round(46 + t * 195);
     return `rgb(${r}, ${g}, ${b})`;
   }
-  const r = Math.round(14 + t * 12);
-  const g = Math.round(32 + t * 126);
-  const b = Math.round(42 + t * 84);
+  const r = Math.round(10 + t * 12);
+  const g = Math.round(28 + t * 135);
+  const b = Math.round(36 + t * 96);
   return `rgb(${r}, ${g}, ${b})`;
 }
 
@@ -116,14 +116,14 @@ export function MazeRenderer({
     [edit],
   );
 
-  const badgeSize = Math.max(15, Math.min(24, cellSize * 0.34));
-  const axisFontSize = size >= 10 ? 9.5 : 10.5;
-  const edgeStrokeWidth = Math.max(3.5, Math.min(6, cellSize * 0.1));
+  const badgeSize = Math.max(18, Math.min(32, cellSize * 0.42));
+  const axisFontSize = size >= 10 ? 11 : 12;
+  const edgeStrokeWidth = Math.max(4.5, Math.min(8.5, cellSize * 0.13));
 
   return (
     <svg
       viewBox={`0 0 ${totalViewBox} ${totalViewBox}`}
-      className="h-auto w-full max-w-[540px] select-none"
+      className="h-auto w-full max-w-[680px] select-none drop-shadow-[0_12px_32px_rgba(0,0,0,0.65)]"
       role="img"
       aria-label={`${size}×${size} AI Maze Evolution 미로 격자`}
       onMouseLeave={() => onHoverCell(null)}
@@ -138,52 +138,61 @@ export function MazeRenderer({
         >
           <line x1="0" y1="0" x2="0" y2="8" stroke="#334766" strokeWidth="1.5" />
         </pattern>
+        <filter id="neon-glow" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation="2" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
       </defs>
 
-      {/* 열 인덱스 */}
+      {/* 열 인덱스 (X축) */}
       {Array.from({ length: size }, (_, col) => (
         <text
           key={`col-${col}`}
           x={AXIS_MARGIN + col * cellSize + cellSize / 2}
-          y={15}
+          y={17}
           textAnchor="middle"
-          fill="#64748b"
+          fill="#94a3b8"
           fontSize={axisFontSize}
+          fontWeight={700}
           fontFamily="JetBrains Mono, monospace"
         >
           {col}
         </text>
       ))}
 
-      {/* 행 인덱스 */}
+      {/* 행 인덱스 (Y축) */}
       {Array.from({ length: size }, (_, row) => (
         <text
           key={`row-${row}`}
-          x={13}
+          x={14}
           y={AXIS_MARGIN + row * cellSize + cellSize / 2}
           textAnchor="middle"
           dominantBaseline="central"
-          fill="#64748b"
+          fill="#94a3b8"
           fontSize={axisFontSize}
+          fontWeight={700}
           fontFamily="JetBrains Mono, monospace"
         >
           {row}
         </text>
       ))}
 
-      {/* 외곽 테두리 */}
+      {/* 챔버 외곽 정밀 테두리 */}
       <rect
         x={AXIS_MARGIN - 1}
         y={AXIS_MARGIN - 1}
         width={VIEWPORT_GRID_SIZE + 2}
         height={VIEWPORT_GRID_SIZE + 2}
-        fill="#0b1220"
-        stroke="#475569"
+        fill="#080e18"
+        stroke="#233550"
         strokeWidth={2}
-        rx={3}
+        rx={4}
       />
 
-      {/* 격자 칸 */}
+      {/* 격자 칸 렌더링 */}
       {grid.map((rowArr, r) =>
         rowArr.map((cell, c) => {
           const x = AXIS_MARGIN + c * cellSize;
@@ -199,7 +208,7 @@ export function MazeRenderer({
             prevGrid[r]?.[c] !== undefined &&
             prevGrid[r][c] !== cell;
 
-          let fill = isCellWall ? "#1e2c42" : "#0e1726";
+          let fill = isCellWall ? "#1c283c" : "#0c1322";
           if (
             !isCellWall &&
             activeMatrix &&
@@ -222,8 +231,8 @@ export function MazeRenderer({
                 width={cellSize}
                 height={cellSize}
                 fill={fill}
-                stroke={isHovered ? "#94a3b8" : "#182438"}
-                strokeWidth={isHovered ? 1.5 : 0.8}
+                stroke={isHovered ? "#38bdf8" : "#172337"}
+                strokeWidth={isHovered ? 1.6 : 0.8}
               />
 
               {isCellWall && (
@@ -234,7 +243,7 @@ export function MazeRenderer({
                     width={Math.max(2, cellSize - 3)}
                     height={Math.max(2, cellSize - 3)}
                     fill="url(#wall-hatch)"
-                    opacity={0.75}
+                    opacity={0.8}
                   />
                   <rect
                     x={x + 1.5}
@@ -256,10 +265,11 @@ export function MazeRenderer({
                   width={cellSize - 4}
                   height={cellSize - 4}
                   fill="#a78bfa"
-                  fillOpacity={0.14}
+                  fillOpacity={0.16}
                 />
               )}
 
+              {/* 히트맵 수치 레이블 (소형 격자용) */}
               {!isCellWall &&
                 activeMatrix &&
                 activeMatrix.length === size &&
@@ -272,8 +282,9 @@ export function MazeRenderer({
                     y={y + cellSize - 4}
                     textAnchor="end"
                     fill="#e2e8f0"
-                    fillOpacity={0.72}
+                    fillOpacity={0.78}
                     fontSize={9}
+                    fontWeight={600}
                     fontFamily="JetBrains Mono, monospace"
                     className="pointer-events-none"
                   >
@@ -283,6 +294,7 @@ export function MazeRenderer({
                   </text>
                 )}
 
+              {/* 출발지 (Start: S) */}
               {isStart && (
                 <g className="pointer-events-none">
                   <rect
@@ -290,19 +302,19 @@ export function MazeRenderer({
                     y={y + 4}
                     width={badgeSize}
                     height={badgeSize}
-                    rx={2.5}
-                    fill="#064e3b"
+                    rx={3}
+                    fill="#065f46"
                     stroke="#10b981"
-                    strokeWidth={1.2}
+                    strokeWidth={1.4}
                   />
                   <text
                     x={x + 4 + badgeSize / 2}
                     y={y + 4 + badgeSize / 2}
                     textAnchor="middle"
                     dominantBaseline="central"
-                    fill="#6ee7b7"
-                    fontSize={Math.max(9, badgeSize * 0.52)}
-                    fontWeight={700}
+                    fill="#a7f3d0"
+                    fontSize={Math.max(10, badgeSize * 0.54)}
+                    fontWeight={800}
                     fontFamily="JetBrains Mono, monospace"
                   >
                     S
@@ -310,6 +322,7 @@ export function MazeRenderer({
                 </g>
               )}
 
+              {/* 목적지 (Goal: G) */}
               {isGoal && (
                 <g className="pointer-events-none">
                   <rect
@@ -317,19 +330,19 @@ export function MazeRenderer({
                     y={y + cellSize - badgeSize - 4}
                     width={badgeSize}
                     height={badgeSize}
-                    rx={2.5}
-                    fill="#115e59"
+                    rx={3}
+                    fill="#0f766e"
                     stroke="#2dd4bf"
-                    strokeWidth={1.2}
+                    strokeWidth={1.4}
                   />
                   <text
                     x={x + cellSize - badgeSize / 2 - 4}
                     y={y + cellSize - badgeSize / 2 - 4}
                     textAnchor="middle"
                     dominantBaseline="central"
-                    fill="#99f6e4"
-                    fontSize={Math.max(9, badgeSize * 0.52)}
-                    fontWeight={700}
+                    fill="#ccfbf1"
+                    fontSize={Math.max(10, badgeSize * 0.54)}
+                    fontWeight={800}
                     fontFamily="JetBrains Mono, monospace"
                   >
                     G
@@ -355,7 +368,7 @@ export function MazeRenderer({
                 x2={seg.x2}
                 y2={seg.y2}
                 stroke="#64748b"
-                strokeWidth={Math.max(2, edgeStrokeWidth * 0.55)}
+                strokeWidth={Math.max(2, edgeStrokeWidth * 0.6)}
                 strokeDasharray="4 4"
                 strokeOpacity={0.75}
                 strokeLinecap="round"
@@ -369,21 +382,23 @@ export function MazeRenderer({
             const isNewlyAdded = prevEdgeWalls !== null && !prevEdgeKeys.has(edge.key);
             return (
               <g key={`wall-${edge.key}`}>
+                {/* 외곽 고대비 윤곽선 */}
                 <line
                   x1={seg.x1}
                   y1={seg.y1}
                   x2={seg.x2}
                   y2={seg.y2}
-                  stroke="#090d14"
-                  strokeWidth={edgeStrokeWidth + 2.4}
+                  stroke="#05080e"
+                  strokeWidth={edgeStrokeWidth + 2.5}
                   strokeLinecap="round"
                 />
+                {/* 벽 본체 */}
                 <line
                   x1={seg.x1}
                   y1={seg.y1}
                   x2={seg.x2}
                   y2={seg.y2}
-                  stroke={isNewlyAdded ? "#a78bfa" : "#cbd5e1"}
+                  stroke={isNewlyAdded ? "#a78bfa" : "#e2e8f0"}
                   strokeWidth={edgeStrokeWidth}
                   strokeLinecap="round"
                   className={isNewlyAdded ? "maze-edit-pulse" : undefined}
@@ -407,7 +422,7 @@ export function MazeRenderer({
                   x2={fSeg.x2}
                   y2={fSeg.y2}
                   stroke="#f59e0b"
-                  strokeWidth={edgeStrokeWidth * 0.75}
+                  strokeWidth={edgeStrokeWidth * 0.8}
                   strokeDasharray="4 3"
                   strokeLinecap="round"
                 />
@@ -424,7 +439,7 @@ export function MazeRenderer({
                   x2={tSeg.x2}
                   y2={tSeg.y2}
                   stroke={editReverted ? "#f43f5e" : "#a78bfa"}
-                  strokeWidth={edgeStrokeWidth + 1.5}
+                  strokeWidth={edgeStrokeWidth + 1.8}
                   strokeDasharray={editReverted ? "5 3" : undefined}
                   strokeLinecap="round"
                   className="maze-edit-pulse"
@@ -432,10 +447,10 @@ export function MazeRenderer({
                 <circle
                   cx={tSeg.midX}
                   cy={tSeg.midY}
-                  r={4.2}
+                  r={4.5}
                   fill={editReverted ? "#f43f5e" : "#a78bfa"}
-                  stroke="#090d14"
-                  strokeWidth={1.2}
+                  stroke="#070b12"
+                  strokeWidth={1.4}
                 />
               </g>
             );
@@ -483,7 +498,7 @@ export function MazeRenderer({
               y={AXIS_MARGIN + targetCell[0] * cellSize + 3}
               width={Math.min(cellSize - 6, 32)}
               height={13}
-              rx={1.5}
+              rx={2}
               fill={editReverted ? "#881337" : "#4c1d95"}
             />
             <text
@@ -492,8 +507,8 @@ export function MazeRenderer({
               textAnchor="middle"
               dominantBaseline="central"
               fill={editReverted ? "#fecdd3" : "#ede9fe"}
-              fontSize={8}
-              fontWeight={700}
+              fontSize={8.5}
+              fontWeight={800}
               fontFamily="JetBrains Mono, Noto Sans KR, monospace"
             >
               {editReverted
@@ -507,7 +522,7 @@ export function MazeRenderer({
           </g>
         )}
 
-      {/* Q-Learning 탈출 AI 경로 및 에이전트 */}
+      {/* Q-Learning 탈출 AI 경로 및 에이전트 토큰 */}
       <AgentRenderer
         qPath={qPath}
         stepIndex={stepIndex}

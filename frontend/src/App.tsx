@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { LineChart } from "lucide-react";
 import { BuilderChart } from "./charts/BuilderChart";
 import { RewardChart } from "./charts/RewardChart";
 import { StepsChart } from "./charts/StepsChart";
 import { SuccessChart } from "./charts/SuccessChart";
 import { AgentPanel } from "./components/AgentPanel";
+import { ArenaHeader } from "./components/ArenaHeader";
 import { BuilderPanel } from "./components/BuilderPanel";
+import { CombatLog } from "./components/CombatLog";
 import { ControlPanel } from "./components/ControlPanel";
 import { Header } from "./components/Header";
 import { MazeGrid } from "./components/MazeGrid";
-import { MetricCard } from "./components/MetricCard";
 import { StatusBar } from "./components/StatusBar";
 import { useSimulationSocket } from "./hooks/useSimulationSocket";
-import { formatEditTarget } from "./maze/wallUtils";
-import { getBuilderActionLabel } from "./types/simulation";
+import { parseEdgeWalls } from "./maze/wallUtils";
 
 export default function App() {
   const { state, connectionStatus, actionError, busy, actions } = useSimulationSocket();
@@ -75,17 +76,23 @@ export default function App() {
   }, [maxPathSteps]);
 
   const combinedError = actionError ?? state.error;
-  const qReport = lastResult?.reports.q ?? null;
 
-  const latestEditSummary = (() => {
-    if (!lastResult?.edit) {
-      return state.builder_mode === "sarsa" ? "SARSA 제작 AI" : "규칙 기반 제작 AI";
+  const currentDisplayWalls = lastResult ? lastResult.walls : state.walls;
+  const currentDisplayGrid = lastResult ? lastResult.grid : state.grid;
+  const parsedEdges = useMemo(() => parseEdgeWalls(currentDisplayWalls), [currentDisplayWalls]);
+  const wallCount = useMemo(() => {
+    if (parsedEdges !== null) return parsedEdges.length;
+    let count = 0;
+    for (const row of currentDisplayGrid) {
+      for (const cell of row) {
+        if (cell === 1) count += 1;
+      }
     }
-    return `${formatEditTarget(lastResult.edit)}${lastResult.edit_reverted ? " · 되돌림" : ""}`;
-  })();
+    return count;
+  }, [parsedEdges, currentDisplayGrid]);
 
   return (
-    <div className="min-h-screen bg-lab-bg text-lab-text">
+    <div className="min-h-screen bg-[#050811] text-slate-100 selection:bg-cyan-500/30 selection:text-cyan-200">
       <Header
         mode={state.mode}
         status={state.status}
@@ -104,7 +111,18 @@ export default function App() {
         error={combinedError}
       />
 
-      <main className="mx-auto max-w-[1640px] space-y-3 p-3 sm:p-4">
+      <main className="mx-auto max-w-[1720px] space-y-3 p-3 sm:p-4">
+        {/* 최상단: AI 대결 상태 VS 브로드캐스트 배너 */}
+        <ArenaHeader
+          lastResult={lastResult}
+          status={state.status}
+          era={state.era}
+          round={state.round}
+          size={state.size}
+          wallCount={wallCount}
+        />
+
+        {/* 시뮬레이션 전투 인터랙션 제어 패널 */}
         <ControlPanel
           status={state.status}
           speed={state.speed}
@@ -123,70 +141,10 @@ export default function App() {
           onSpeedChange={(spd) => actions.setSpeed(spd)}
         />
 
-        {/* 핵심 지표 요약 */}
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
-          <MetricCard
-            label="Q-Learning 탈출 성공률"
-            value={qReport ? `${(qReport.success_rate * 100).toFixed(1)}%` : "—"}
-            sublabel={
-              qReport
-                ? `평균 ${qReport.avg_steps.toFixed(1)}회 이동 · 보상 ${qReport.avg_reward.toFixed(1)}`
-                : "1라운드 실행 대기 중"
-            }
-            accent="q"
-          />
-          <MetricCard
-            label="초기 적응률"
-            value={qReport ? `${(qReport.early_success_rate * 100).toFixed(1)}%` : "—"}
-            sublabel="미로 수정 직후 초기 10회 에피소드"
-            accent="merged"
-          />
-          <MetricCard
-            label="제작 AI 행동"
-            value={getBuilderActionLabel(lastResult?.builder_action_name)}
-            sublabel={latestEditSummary}
-            accent="builder"
-          />
-          <MetricCard
-            label="미로 제작 AI 보상"
-            value={lastResult ? lastResult.builder_reward.toFixed(2) : "—"}
-            sublabel="목표 탈출 성공률 구간 30%–70%"
-            accent="sarsa"
-          />
-          <MetricCard
-            label="BFS 최단 경로"
-            value={
-              qReport && qReport.shortest_path_len !== null ? `${qReport.shortest_path_len}칸` : "—"
-            }
-            sublabel={`시대 ${state.era} · 다음 미로 ${state.size}×${state.size}`}
-            accent="neutral"
-          />
-        </div>
-
-        {/* 중앙 미로 시뮬레이션 + 탈출 AI / 제작 AI 패널 */}
-        <div className="grid grid-cols-1 gap-3 xl:grid-cols-12">
-          <div className="min-w-0 xl:col-span-7">
-            <MazeGrid
-              currentGrid={state.grid}
-              currentWalls={state.walls}
-              currentStart={state.start}
-              currentGoal={state.goal}
-              prevGrid={state.prev_grid}
-              prevWalls={state.prev_walls}
-              lastResult={lastResult}
-              stepIndex={stepIndex}
-              maxPathSteps={maxPathSteps}
-              onStepIndexChange={handleManualStepChange}
-              onReplayPath={handleReplayPath}
-            />
-          </div>
-
-          <div className="flex min-w-0 flex-col gap-3 xl:col-span-5">
-            <AgentPanel
-              lastResult={lastResult}
-              history={state.history}
-              stepIndex={stepIndex}
-            />
+        {/* 적대적 공진화 3-컬럼 대결 아레나 */}
+        <div className="grid grid-cols-1 items-start gap-3.5 xl:grid-cols-12">
+          {/* [좌측 패널]: SARSA 미로 제작 AI (공격 / 디스럽터) */}
+          <div className="min-w-0 xl:col-span-3">
             <BuilderPanel
               builderMode={state.builder_mode}
               lastResult={lastResult}
@@ -201,20 +159,61 @@ export default function App() {
               eraSizes={state.era_sizes}
             />
           </div>
-        </div>
 
-        {/* 학습 분석 그래프 */}
-        <section aria-label="학습 분석 그래프" className="space-y-2">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-lab-border pb-1.5">
-            <h2 className="font-mono text-xs font-semibold text-slate-300">
-              학습 분석 및 수렴 추이
-            </h2>
-            <span className="font-mono text-[10px] text-slate-500">
-              실시간 연결로 자동 갱신 · 점선 세로선 = 시대 전환 지점
-            </span>
+          {/* [중앙 메인 아레나]: 미로 전투 뷰포트 + 실시간 이벤트 로그 중계 */}
+          <div className="flex min-w-0 flex-col gap-3.5 xl:col-span-6">
+            <MazeGrid
+              currentGrid={state.grid}
+              currentWalls={state.walls}
+              currentStart={state.start}
+              currentGoal={state.goal}
+              prevGrid={state.prev_grid}
+              prevWalls={state.prev_walls}
+              lastResult={lastResult}
+              stepIndex={stepIndex}
+              maxPathSteps={maxPathSteps}
+              onStepIndexChange={handleManualStepChange}
+              onReplayPath={handleReplayPath}
+            />
+
+            {/* 실시간 AI 공진화 전투 이벤트 피드 */}
+            <CombatLog
+              lastResult={lastResult}
+              history={state.history}
+              editHistory={state.edit_history}
+            />
           </div>
 
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          {/* [우측 패널]: Q-Learning 미로 탈출 AI (방어 / 도전자) */}
+          <div className="min-w-0 xl:col-span-3">
+            <AgentPanel
+              lastResult={lastResult}
+              history={state.history}
+              stepIndex={stepIndex}
+            />
+          </div>
+        </div>
+
+        {/* 시계열 강화학습 분석 그래프 섹션 (4대 Recharts) */}
+        <section aria-label="학습 분석 그래프" className="space-y-2.5 pt-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#1b273b] pb-2">
+            <div className="flex items-center gap-2">
+              <LineChart className="h-4 w-4 text-cyan-400" />
+              <h2 className="font-mono text-sm font-extrabold text-slate-100">
+                강화학습 공진화 수렴 및 정책 진화 시계열 분석
+              </h2>
+            </div>
+            <div className="flex items-center gap-3 font-mono text-[11px] text-slate-400">
+              <span className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                실시간 자동 동기화
+              </span>
+              <span>·</span>
+              <span>수직 점선 = 시대(Era) 스케일업 전환 지점</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">
             <SuccessChart history={state.history} eraTransitions={state.era_transitions} />
             <RewardChart history={state.history} eraTransitions={state.era_transitions} />
             <StepsChart history={state.history} eraTransitions={state.era_transitions} />

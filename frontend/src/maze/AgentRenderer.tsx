@@ -31,9 +31,9 @@ export function AgentRenderer({
 }: AgentRendererProps) {
   if (!showPath || qPath.length === 0) return null;
 
-  const strokeWidth = Math.max(2.2, Math.min(3.8, cellSize * 0.065));
-  const tokenRadius = Math.max(7, Math.min(14, cellSize * 0.24));
-  const fontSize = Math.max(8.5, Math.min(12, tokenRadius * 0.95));
+  const strokeWidth = Math.max(2.4, Math.min(4.2, cellSize * 0.075));
+  const tokenRadius = Math.max(8, Math.min(15, cellSize * 0.25));
+  const fontSize = Math.max(9, Math.min(12, tokenRadius * 0.95));
 
   const clampedIdx = Math.min(stepIndex, qPath.length - 1);
   const pos = qPath[clampedIdx];
@@ -41,33 +41,46 @@ export function AgentRenderer({
 
   return (
     <g className="pointer-events-none">
-      {/* Full greedy trajectory guide */}
+      {/* 전체 탐색 궤적 가이드 (반투명 사이안 라인) */}
       {qPath.length > 1 && (
         <polyline
           points={buildPolylinePoints(qPath, cellSize, originOffset)}
           fill="none"
-          stroke="#38bdf8"
+          stroke="#0284c7"
           strokeWidth={strokeWidth}
-          strokeOpacity={0.28}
+          strokeOpacity={0.35}
           strokeLinecap="round"
           strokeLinejoin="round"
         />
       )}
 
-      {/* Active animated trail up to current playback step */}
+      {/* 현재 재생 스텝까지의 활성 주행선 (빛나는 네온 사이안) */}
       {activeTrail.length > 1 && (
-        <polyline
-          points={buildPolylinePoints(activeTrail, cellSize, originOffset)}
-          fill="none"
-          stroke="#38bdf8"
-          strokeWidth={strokeWidth * 1.15}
-          strokeOpacity={0.95}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
+        <>
+          {/* 외곽 네온 글로우 */}
+          <polyline
+            points={buildPolylinePoints(activeTrail, cellSize, originOffset)}
+            fill="none"
+            stroke="#38bdf8"
+            strokeWidth={strokeWidth * 1.8}
+            strokeOpacity={0.25}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          {/* 코어 라인 */}
+          <polyline
+            points={buildPolylinePoints(activeTrail, cellSize, originOffset)}
+            fill="none"
+            stroke="#7dd3fc"
+            strokeWidth={strokeWidth}
+            strokeOpacity={0.95}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </>
       )}
 
-      {/* Q-Learning Solver Agent Token */}
+      {/* Q-Learning Solver 에이전트 토큰 */}
       <g
         className="agent-token-move"
         style={{
@@ -76,19 +89,28 @@ export function AgentRenderer({
           }px)`,
         }}
       >
-        <circle r={tokenRadius + 3.5} fill="#38bdf8" fillOpacity={0.2} />
+        {/* 외곽 레이더 펄스 링 */}
+        <circle
+          r={tokenRadius + 5}
+          fill="none"
+          stroke="#38bdf8"
+          strokeWidth={1}
+          strokeOpacity={0.4}
+        />
+        <circle r={tokenRadius + 2.5} fill="#38bdf8" fillOpacity={0.22} />
+        {/* 본체 원형 */}
         <circle
           r={tokenRadius}
           fill="#0284c7"
           stroke="#e0f2fe"
-          strokeWidth={1.6}
+          strokeWidth={1.8}
         />
         <text
           textAnchor="middle"
           dominantBaseline="central"
           fill="#ffffff"
           fontSize={fontSize}
-          fontWeight={700}
+          fontWeight={800}
           fontFamily="JetBrains Mono, monospace"
         >
           Q
