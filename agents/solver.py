@@ -103,7 +103,13 @@ def run_round(env, agent, n_episodes):
             early_successes += int(success)
         total_steps += episode_steps
         total_reward += episode_reward
-        agent.decay_epsilon()
+        if success:
+            agent.decay_epsilon()
+        else:
+            agent.epsilon = min(
+                config.EPSILON_START,
+                agent.epsilon / config.EPSILON_DECAY,
+            )
 
     early_episode_count = min(n_episodes, config.ROUND_EARLY_EPISODES)
     return {
