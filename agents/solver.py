@@ -1,18 +1,9 @@
 """미로 탈출용 Q-Learning 에이전트와 라운드 실행 함수."""
 
-from collections import deque
-
 import numpy as np
 
 import config
-
-try:
-    from core.maze import shortest_path_len
-except ModuleNotFoundError as error:
-    if error.name not in {"core", "core.maze"}:
-        raise
-    shortest_path_len = None
-
+from core.maze import shortest_path_len
 
 _ACTIONS = ((-1, 0), (1, 0), (0, -1), (0, 1))
 
@@ -39,10 +30,8 @@ class QLearningAgent:
         best_actions = np.flatnonzero(values == np.max(values))
         return int(self.rng.choice(best_actions))
 
-    def update(self, state, action, reward, next_state, next_action, done=None):
+    def update(self, state, action, reward, next_state, done):
         """전이 정보로 최대 다음 상태 가치를 이용해 Q-table을 갱신한다."""
-        if done is None:
-            done = bool(next_action)
         row, col = state
         next_row, next_col = next_state
         old_value = self.q_table[row, col, action]
@@ -76,56 +65,6 @@ class QLearningAgent:
         return path
 
 
-class SarsaAgent(QLearningAgent):
-    """실제로 선택한 다음 행동의 가치를 이용해 학습하는 SARSA 에이전트."""
-
-    def __init__(self, size, rng):
-        """미로 크기와 NumPy 난수 생성기로 SARSA 에이전트를 초기화한다."""
-        super().__init__(size, rng)
-        self.name = "sarsa"
-
-    def update(self, state, action, reward, next_state, next_action, done):
-        """선택한 다음 행동의 Q값을 사용해 SARSA 규칙으로 Q-table을 갱신한다."""
-        row, col = state
-        old_value = self.q_table[row, col, action]
-
-        if done:
-            next_value = 0.0
-        else:
-            if next_action is None:
-                raise ValueError("종료 전 전이에는 다음 행동이 필요합니다.")
-            next_row, next_col = next_state
-            next_value = float(self.q_table[next_row, next_col, next_action])
-
-        target = reward + config.GAMMA * next_value
-        self.q_table[row, col, action] = old_value + config.ALPHA * (target - old_value)
-
-
-def _shortest_path_length(env):
-    """환경에서 공개된 최단 경로 함수를 사용해 최단 걸음 수를 반환한다."""
-    if shortest_path_len is not None:
-        return shortest_path_len(env.grid, env.start, env.goal)
-
-    # core/maze.py가 아직 병합되지 않은 작업 브랜치에서의 임시 BFS이다.
-    pending = deque([(env.start, 0)])
-    visited = {env.start}
-    while pending:
-        (row, col), distance = pending.popleft()
-        if (row, col) == env.goal:
-            return distance
-        for row_delta, col_delta in _ACTIONS:
-            neighbor = (row + row_delta, col + col_delta)
-            next_row, next_col = neighbor
-            if (
-                0 <= next_row < env.size
-                and 0 <= next_col < env.size
-                and neighbor not in visited
-                and env.grid[next_row, next_col] == 0
-            ):
-                visited.add(neighbor)
-                pending.append((neighbor, distance + 1))
-    return None
-
 
 def run_round(env, agent, n_episodes):
     """환경·에이전트·학습 판 수를 받아 인터페이스 형식의 성적표를 반환한다."""
@@ -149,10 +88,7 @@ def run_round(env, agent, n_episodes):
 
         while not done:
             next_state, reward, done, info = env.step(action)
-            next_action = None
-            if isinstance(agent, SarsaAgent) and not done:
-                next_action = agent.select_action(next_state)
-            agent.update(state, action, reward, next_state, next_action, done)
+            agent.update(state, action, reward, next_state, done)
 
             visit_counts[next_state] += 1
             episode_reward += reward
@@ -160,11 +96,7 @@ def run_round(env, agent, n_episodes):
             success = success or info.get("result") == "goal"
             state = next_state
             if not done:
-                action = (
-                    next_action
-                    if isinstance(agent, SarsaAgent)
-                    else agent.select_action(state)
-                )
+                action = agent.select_action(state)
 
         successes += int(success)
         if episode < config.ROUND_EARLY_EPISODES:
@@ -185,5 +117,5 @@ def run_round(env, agent, n_episodes):
         "avg_steps": total_steps / n_episodes if n_episodes else 0.0,
         "avg_reward": total_reward / n_episodes if n_episodes else 0.0,
         "visit_counts": visit_counts,
-        "shortest_path_len": _shortest_path_length(env),
+        "shortest_path_len": shortest_path_len(env.grid, env.start, env.goal),
     }
