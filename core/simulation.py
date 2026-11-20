@@ -10,6 +10,7 @@ import numpy as np
 import config
 from core.environment import MazeEnv
 from core.evolution import next_size, should_advance_era
+from core.fixed_maze import get_fixed_grid
 from core.maze import apply_edit, generate_maze, is_solvable
 
 
@@ -49,20 +50,23 @@ class Simulation:
         """제작 방식과 시드로 첫 시대를 초기화한다."""
         self._initialize(builder_mode, config.SEED if seed is None else seed)
 
-    def _initialize(self, builder_mode, seed):
-        """모드와 시드로 격자, 에이전트, 기록을 새로 만든다."""
+    def _initial_components(self, builder_mode, seed, maze_rng):
+        """제작 방식과 난수를 받아 첫 격자와 라운드 실행에 필요한 객체를 반환한다."""
         if builder_mode not in ("sarsa", "rule"):
             raise ValueError("제작 방식은 sarsa 또는 rule이어야 합니다.")
-        seed = int(seed)
         size = config.ERA_SIZES[0]
+        return generate_maze(size, maze_rng), _make_agents(builder_mode, size, seed)
+
+    def _initialize(self, builder_mode, seed):
+        """모드와 시드로 격자, 에이전트, 기록을 새로 만든다."""
+        seed = int(seed)
         maze_rng = _rng("maze", seed)
-        grid = generate_maze(size, maze_rng)
-        builder, solver, run_round, names = _make_agents(builder_mode, size, seed)
+        grid, (builder, solver, run_round, names) = self._initial_components(builder_mode, seed, maze_rng)
         self._builder_mode = builder_mode
         self._seed = seed
         self.round = 0
         self.era = 1
-        self.size = size
+        self.size = grid.shape[0]
         self.status = "idle"
         self._history = []
         self._round_history = []
@@ -144,21 +148,30 @@ class Simulation:
         if self.is_finished():
             raise SimulationStateError("이미 마지막 시대가 끝났습니다.")
 
-        edit, round_grid = self._propose_edit(self._make_env(self.grid))
+        edit, round_grid = None, self.grid
+        if self._builder is not None:
+            edit, round_grid = self._propose_edit(self._make_env(self.grid))
         env = self._make_env(round_grid)
         report = self._run_round(env, self._q, config.ROUND_EPISODES)
         reverted = edit is not None and report["success_rate"] == 0
         if not reverted:
             self.grid = round_grid
-        reward = self._builder.learn(self._previous_report, report, reverted)
+        reward, action, builder_state = 0.0, None, None
+        if self._builder is not None:
+            reward = self._builder.learn(self._previous_report, report, reverted)
+            action = self._builder.last_action
+            builder_state = self._builder.last_state
         self._previous_report = report
         self._history.append(report["success_rate"])
         self.round += 1
 
-        advance = should_advance_era(self._history, len(self._history))
-        following_size = next_size(self.size) if advance else None
-        finished = advance and following_size is None
-        action = self._builder.last_action
+        following_size = None
+        if self._builder is None:
+            finished = self.round >= config.ERA_MAX_ROUNDS
+        else:
+            advance = should_advance_era(self._history, len(self._history))
+            following_size = next_size(self.size) if advance else None
+            finished = advance and following_size is None
         action_name = None if action is None else self._action_names[action]
         result = {
             "round": self.round, "era": self.era, "size": self.size,
@@ -168,7 +181,7 @@ class Simulation:
             "best_paths": {"q": self._q.greedy_path(self._make_env(round_grid))},
             "q_values_max": {"q": self._q.q_table.max(axis=2)},
             "builder_mode": self._builder_mode,
-            "builder_state": self._builder.last_state,
+            "builder_state": builder_state,
             "builder_action": action,
             "builder_action_name": action_name,
             "builder_reward": float(reward),
@@ -211,3 +224,22 @@ class Simulation:
     def is_finished(self):
         """마지막 시대가 끝났는지 반환한다."""
         return self.status == "finished"
+
+
+class FixedMazeSimulation(Simulation):
+    """같은 15×15 미로에서 Solver만 설정된 최대 라운드까지 학습시킨다."""
+
+    def __init__(self, seed=None):
+        """Solver 시드를 받아 기준 실험의 첫 상태를 초기화한다."""
+        self._initialize(None, config.SEED if seed is None else seed)
+
+    def _initial_components(self, builder_mode, seed, maze_rng):
+        """시드로 고정 초기 격자와 Solver 라운드 실행에 필요한 객체를 반환한다."""
+        if builder_mode is not None:
+            raise ValueError("고정 미로 기준 실험은 제작 AI 없이 실행합니다.")
+
+        from agents.solver import QLearningAgent, run_round
+
+        grid = get_fixed_grid()
+        solver = QLearningAgent(grid.shape[0], _rng("q", seed))
+        return grid, (None, solver, run_round, ())

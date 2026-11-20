@@ -200,3 +200,28 @@ def test_reset_preserves_seed_and_restarts_training(monkeypatch, tmp_path):
     assert changed["round"] == 0
     assert changed["history"] == []
     assert sim.step()["builder_q_table"] is None
+
+
+def test_fixed_maze_solver_runs_and_resets(monkeypatch, tmp_path):
+    """실제 Solver로 고정 크기, 종료, 리셋과 시드 재현성을 검증한다."""
+    monkeypatch.setattr(simulation.config, "LOG_DIR", tmp_path)
+    monkeypatch.setattr(simulation.config, "ROUND_EPISODES", 2)
+    monkeypatch.setattr(simulation.config, "ERA_MAX_ROUNDS", 2)
+    sim = simulation.FixedMazeSimulation(seed=42)
+    initial = sim.get_state()
+    first = sim.step()
+    assert first["size"] == 15
+    assert first["grid"] == initial["grid"]
+    assert first["edit"] is None
+    assert first["builder_action"] is None
+    assert first["reports"]["q"]["n_episodes"] == 2
+    assert not first["era_changed"]
+    assert not first["finished"]
+    final = sim.step()
+    assert final["size"] == 15
+    assert final["grid"] == initial["grid"]
+    assert final["finished"]
+    with pytest.raises(simulation.SimulationStateError):
+        sim.step()
+    assert sim.reset() == initial
+    assert sim.step() == first
